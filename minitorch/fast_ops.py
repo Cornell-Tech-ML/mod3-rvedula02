@@ -140,6 +140,7 @@ class FastOps(TensorOps):
 # Implementations
 
 
+
 def tensor_map(
     fn: Callable[[float], float],
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides], None]:
@@ -171,23 +172,14 @@ def tensor_map(
     ) -> None:
         size = int(np.prod(out_shape))
         
-        # Check if tensors are truly contiguous
-        out_is_contiguous = all(
-            out_strides[i] == int(np.prod(out_shape[i + 1:]))
-            for i in range(len(out_shape) - 1)
-        )
-        in_is_contiguous = all(
-            in_strides[i] == int(np.prod(in_shape[i + 1:]))
-            for i in range(len(in_shape) - 1)
-        )
-        
-        if (out_is_contiguous and in_is_contiguous and
-            np.array_equal(out_shape, in_shape)):
-            # Fast path for contiguous tensors
+        # Fast path only if shapes and strides match exactly
+        if (len(out_shape) == len(in_shape) and 
+            np.array_equal(out_shape, in_shape) and
+            np.array_equal(out_strides, in_strides)):
             for i in prange(size):
                 out[i] = fn(in_storage[i])
         else:
-            # General case requiring index calculations
+            # General case for broadcasting
             out_index = np.zeros(len(out_shape), dtype=np.int32)
             in_index = np.zeros(len(in_shape), dtype=np.int32)
             for i in prange(size):
@@ -197,7 +189,7 @@ def tensor_map(
                 in_pos = index_to_position(in_index, in_strides)
                 out[out_pos] = fn(in_storage[in_pos])
 
-    return njit(_map, parallel=True) 
+    return njit(_map, parallel=True)
 
 
 def tensor_zip(
@@ -235,15 +227,17 @@ def tensor_zip(
         b_strides: Strides,
     ) -> None:
         size = int(np.prod(out_shape))
-
-        # Only use fast path when shapes are exactly equal
-        if (len(out_shape) == len(a_shape) == len(b_shape) and
-            all(out_shape[i] == a_shape[i] == b_shape[i] for i in range(len(out_shape)))):
-            # Fast path: process directly
+        
+        # Fast path only if all shapes match exactly
+        if (len(out_shape) == len(a_shape) == len(b_shape) and 
+            np.array_equal(out_shape, a_shape) and 
+            np.array_equal(a_shape, b_shape) and
+            np.array_equal(out_strides, a_strides) and
+            np.array_equal(a_strides, b_strides)):
             for i in prange(size):
                 out[i] = fn(a_storage[i], b_storage[i])
         else:
-            # Slow path: need index calculations
+            # General case for broadcasting
             out_index = np.zeros(len(out_shape), dtype=np.int32)
             a_index = np.zeros(len(a_shape), dtype=np.int32)
             b_index = np.zeros(len(b_shape), dtype=np.int32)
@@ -256,11 +250,11 @@ def tensor_zip(
                 b_pos = index_to_position(b_index, b_strides)
                 out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
-    return njit(_zip, parallel=True)  # type: ignore
+    return njit(_zip, parallel=True)
 
 
 def tensor_reduce(
-    fn: Callable[[float, float], float],
+    fn: Callable[[float, float], float]
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
     """NUMBA higher-order tensor reduce function. See `tensor_ops.py` for description.
 
@@ -289,8 +283,30 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError("Need to implement for Task 3.1")
+        # Calculate sizes and reduction length
+        size = int(np.prod(out_shape))
+        reduce_size = a_shape[reduce_dim]
+        
+        # Create index buffers
+        out_index = np.zeros(len(out_shape), dtype=np.int32)
+        a_index = np.zeros(len(a_shape), dtype=np.int32)
+        
+        # Parallel over output positions
+        for i in prange(size):
+            to_index(i, out_shape, out_index)
+            
+            # Copy output index to input index
+            for j in range(len(out_index)):
+                a_index[j] = out_index[j]
+            
+            # Handle reduced dimension
+            out_pos = index_to_position(out_index, out_strides)
+            
+            # Inner reduction loop
+            for j in range(reduce_size):
+                a_index[reduce_dim] = j
+                a_pos = index_to_position(a_index, a_strides)
+                out[out_pos] = fn(out[out_pos], a_storage[a_pos])
 
     return njit(_reduce, parallel=True)  # type: ignore
 
