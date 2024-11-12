@@ -32,7 +32,7 @@ class Network(minitorch.Module):
         # Apply sigmoid activation after each linear layer
         h = self.layer1(x).sigmoid()
         h = self.layer2(h).sigmoid()
-        return self.layer3(h).forward(h).sigmoid()
+        return self.layer3.forward(h).sigmoid()
 
 
 class Linear(minitorch.Module):
