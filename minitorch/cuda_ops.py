@@ -171,12 +171,12 @@ def tensor_map(
         in_strides: Strides,
     ) -> None:
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-        
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        in_index = cuda.local.array(MAX_DIMS, numba.int32)
         # Check if this thread should process data
         if i < out_size:
             # Create thread-local index arrays
-            out_index = cuda.local.array(MAX_DIMS, numba.int32)
-            in_index = cuda.local.array(MAX_DIMS, numba.int32)
+            
             
             # Convert position to indices
             to_index(i, out_shape, out_index)
@@ -224,14 +224,12 @@ def tensor_zip(
         b_strides: Strides,
     ) -> None:
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        a_index = cuda.local.array(MAX_DIMS, numba.int32)
+        b_index = cuda.local.array(MAX_DIMS, numba.int32)
         
         # Check if this thread should process data
         if i < out_size:
-            # Create thread-local index arrays
-            out_index = cuda.local.array(MAX_DIMS, numba.int32)
-            a_index = cuda.local.array(MAX_DIMS, numba.int32)
-            b_index = cuda.local.array(MAX_DIMS, numba.int32)
-            
             # Convert position to indices
             to_index(i, out_shape, out_index)
             # Calculate output position
