@@ -487,57 +487,60 @@ def _tensor_matrix_multiply(
     Returns:
         None : Fills in `out`
     """
-    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
-    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
-    
-    # Get current batch, row, and column
+    # Get current indices
     batch = cuda.blockIdx.z
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
     
-    # Local thread position in block
+    # Local thread position
     pi = cuda.threadIdx.x
     pj = cuda.threadIdx.y
     
-    # Shared memory for block multiplication
+    # Shared memory
     BLOCK_DIM = 32
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     
-    # Check if this thread should compute output
+    # Initialize accumulator
+    temp = 0.0
+    
+    # Only compute if within bounds
     if i < out_shape[1] and j < out_shape[2]:
-        temp = 0.0
-        
-        # Loop over blocks in the shared dimension
+        # Loop over blocks
         for block_start in range(0, a_shape[2], BLOCK_DIM):
-            # Clear shared memory
+            # Initialize shared memory
             a_shared[pi, pj] = 0.0
             b_shared[pi, pj] = 0.0
             cuda.syncthreads()
             
-            # Load data into shared memory
-            k = block_start + pj
-            if i < a_shape[1] and k < a_shape[2]:
-                a_idx = batch * a_batch_stride + i * a_strides[1] + k * a_strides[2]
+            # Load a and b into shared memory
+            if (i < a_shape[1] and block_start + pj < a_shape[2]):
+                a_idx = (
+                    batch * a_strides[0] +
+                    i * a_strides[1] +
+                    (block_start + pj) * a_strides[2]
+                )
                 a_shared[pi, pj] = a_storage[a_idx]
             
-            k = block_start + pi
-            if k < b_shape[1] and j < b_shape[2]:
-                b_idx = batch * b_batch_stride + k * b_strides[1] + j * b_strides[2]
+            if (block_start + pi < b_shape[1] and j < b_shape[2]):
+                b_idx = (
+                    batch * b_strides[0] +
+                    (block_start + pi) * b_strides[1] +
+                    j * b_strides[2]
+                )
                 b_shared[pi, pj] = b_storage[b_idx]
             
             cuda.syncthreads()
             
-            # Compute partial dot product for this block
+            # Compute partial dot product
             for k in range(min(BLOCK_DIM, a_shape[2] - block_start)):
                 temp += a_shared[pi, k] * b_shared[k, pj]
             
             cuda.syncthreads()
         
-        # Write final result to global memory
-        if i < out_shape[1] and j < out_shape[2]:
-            out_idx = batch * out_strides[0] + i * out_strides[1] + j * out_strides[2]
-            out[out_idx] = temp
+        # Write result to global memory
+        out_idx = batch * out_strides[0] + i * out_strides[1] + j * out_strides[2]
+        out[out_idx] = temp
             
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
