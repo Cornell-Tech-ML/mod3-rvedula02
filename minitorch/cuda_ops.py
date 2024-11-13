@@ -492,49 +492,46 @@ def _tensor_matrix_multiply(
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     j = cuda.blockIdx.y * cuda.blockDim.y + cuda.threadIdx.y
     
-    # Local thread position
-    pi = cuda.threadIdx.x
-    pj = cuda.threadIdx.y
+    # Initialize accumulator
+    temp = 0.0
     
     # Shared memory
     BLOCK_DIM = 32
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     
-    # Initialize accumulator
-    temp = 0.0
-    
     # Only compute if within bounds
     if i < out_shape[1] and j < out_shape[2]:
         # Loop over blocks
         for block_start in range(0, a_shape[2], BLOCK_DIM):
             # Initialize shared memory
-            a_shared[pi, pj] = 0.0
-            b_shared[pi, pj] = 0.0
+            a_shared[cuda.threadIdx.x, cuda.threadIdx.y] = 0.0
+            b_shared[cuda.threadIdx.x, cuda.threadIdx.y] = 0.0
             cuda.syncthreads()
             
             # Load a and b into shared memory
-            if (i < a_shape[1] and block_start + pj < a_shape[2]):
+            if (i < a_shape[1] and block_start + cuda.threadIdx.y < a_shape[2]):
                 a_idx = (
                     batch * a_strides[0] +
                     i * a_strides[1] +
-                    (block_start + pj) * a_strides[2]
+                    (block_start + cuda.threadIdx.y) * a_strides[2]
                 )
-                a_shared[pi, pj] = a_storage[a_idx]
+                a_shared[cuda.threadIdx.x, cuda.threadIdx.y] = a_storage[a_idx]
             
-            if (block_start + pi < b_shape[1] and j < b_shape[2]):
+            if (block_start + cuda.threadIdx.x < b_shape[1] and j < b_shape[2]):
                 b_idx = (
                     batch * b_strides[0] +
-                    (block_start + pi) * b_strides[1] +
+                    (block_start + cuda.threadIdx.x) * b_strides[1] +
                     j * b_strides[2]
                 )
-                b_shared[pi, pj] = b_storage[b_idx]
+                b_shared[cuda.threadIdx.x, cuda.threadIdx.y] = b_storage[b_idx]
             
             cuda.syncthreads()
             
             # Compute partial dot product
-            for k in range(min(BLOCK_DIM, a_shape[2] - block_start)):
-                temp += a_shared[pi, k] * b_shared[k, pj]
+            k_max = min(BLOCK_DIM, a_shape[2] - block_start)
+            for k in range(k_max):
+                temp += a_shared[cuda.threadIdx.x, k] * b_shared[k, cuda.threadIdx.y]
             
             cuda.syncthreads()
         
