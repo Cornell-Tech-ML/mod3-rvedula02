@@ -528,5 +528,16 @@ def _tensor_matrix_multiply(
             
             cuda.syncthreads()
             
+            # Compute partial dot product for this block
+            for k in range(min(BLOCK_DIM, a_shape[2] - block_start)):
+                temp += a_shared[pi, k] * b_shared[k, pj]
+            
+            cuda.syncthreads()
+        
+        # Write final result to global memory
+        if i < out_shape[1] and j < out_shape[2]:
+            out_idx = batch * out_strides[0] + i * out_strides[1] + j * out_strides[2]
+            out[out_idx] = temp
+            
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
