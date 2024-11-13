@@ -268,15 +268,37 @@ def _sum_practice(out: Storage, a: Storage, size: int) -> None:
         size (int):  length of a.
 
     """
-    BLOCK_DIM = 32
-
+    BLOCK_DIM = 32  # This should match the test's expectation
+    
+    # Shared memory for partial sums within a block
     cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-    i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-    pos = cuda.threadIdx.x
-
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError("Need to implement for Task 3.3")
-
+    
+    # Calculate thread and block index
+    tid = cuda.threadIdx.x
+    bid = cuda.blockIdx.x
+    
+    # Global index for this thread
+    global_id = bid * BLOCK_DIM + tid
+    
+    # Initialize shared memory
+    if global_id < size:
+        cache[tid] = a[global_id]
+    else:
+        cache[tid] = 0.0
+        
+    cuda.syncthreads()
+    
+    # Reduction in shared memory
+    s = BLOCK_DIM // 2
+    while s > 0:
+        if tid < s and global_id < size:
+            cache[tid] += cache[tid + s]
+        cuda.syncthreads()
+        s //= 2
+    
+    # Write result for this block to global memory
+    if tid == 0:
+        out[bid] = cache[0]
 
 jit_sum_practice = cuda.jit()(_sum_practice)
 
