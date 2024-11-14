@@ -79,8 +79,8 @@ class FastTrain:
             
             # Learning rate decay
             current_lr = learning_rate * (0.95 ** (epoch // 50))
-            for param_group in optim.parameters():
-                param_group.learning_rate = current_lr
+            # Update learning rate for all parameters
+            optim.learning_rate = current_lr
             
             # Shuffle data
             c = list(zip(data.X, data.y))
@@ -145,10 +145,10 @@ class FastTrain:
                     print(f"\nEarly stopping at epoch {epoch}. Best accuracy: {best_accuracy:.2f}%")
                     break
         
-        total_time = time.time() - total_start
-        print(f"\nTraining completed in {total_time:.2f}s")
-        print(f"Average epoch time: {total_time/max_epochs:.3f}s")
-        print(f"Best accuracy achieved: {best_accuracy:.2f}s")
+            total_time = time.time() - total_start
+            print(f"\nTraining completed in {total_time:.2f}s")
+            print(f"Average epoch time: {total_time/max_epochs:.3f}s")
+            print(f"Best accuracy achieved: {best_accuracy:.2f}%")
 
 
 if __name__ == "__main__":
