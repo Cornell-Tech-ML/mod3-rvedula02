@@ -487,76 +487,70 @@ def _tensor_matrix_multiply(
     Returns:
         None : Fills in `out`
     """
+    # Get batch stride and index
+    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
+    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
+    batch = cuda.blockIdx.z
+
     # Get thread indices
     tx = cuda.threadIdx.x
     ty = cuda.threadIdx.y
+
+    # Get block indices
     bx = cuda.blockIdx.x
     by = cuda.blockIdx.y
-    bz = cuda.blockIdx.z
-
-    # Calculate matrix dimensions
-    batch = out_shape[0]  # Batch size
-    M = out_shape[1]      # Output rows
-    N = out_shape[2]      # Output columns
-    K = a_shape[2]        # Inner dimension
 
     # Calculate global row and column
     row = by * cuda.blockDim.y + ty
     col = bx * cuda.blockDim.x + tx
 
-    # Define shared memory tiles
+    # Define tile size
     TILE_SIZE = 32
-    shared_a = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
-    shared_b = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
+
+    # Allocate shared memory for tiles
+    tile_a = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
+    tile_b = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
 
     # Initialize accumulator
     acc = 0.0
 
-    # Only compute if within matrix bounds
-    if row < M and col < N:
-        # Loop over tiles
-        for t in range((K + TILE_SIZE - 1) // TILE_SIZE):
-            # Clear shared memory tiles
-            shared_a[ty, tx] = 0.0
-            shared_b[ty, tx] = 0.0
-            cuda.syncthreads()
+    # Loop over tiles
+    for t in range((a_shape[2] + TILE_SIZE - 1) // TILE_SIZE):
+        # Load data into shared memory tiles
+        if row < a_shape[1] and t * TILE_SIZE + tx < a_shape[2]:
+            a_pos = (
+                batch * a_batch_stride
+                + row * a_strides[1]
+                + (t * TILE_SIZE + tx) * a_strides[2]
+            )
+            tile_a[ty, tx] = a_storage[a_pos]
+        else:
+            tile_a[ty, tx] = 0.0
 
-            # Load data into shared memory tiles
-            k = t * TILE_SIZE + tx
-            if k < K:
-                # Calculate position in A
-                a_row = row
-                a_col = k
-                a_batch = bz if a_shape[0] > 1 else 0
-                a_pos = (a_batch * a_strides[0] + 
-                        a_row * a_strides[1] + 
-                        a_col * a_strides[2])
-                shared_a[ty, tx] = a_storage[a_pos]
+        if t * TILE_SIZE + ty < b_shape[1] and col < b_shape[2]:
+            b_pos = (
+                batch * b_batch_stride
+                + (t * TILE_SIZE + ty) * b_strides[1]
+                + col * b_strides[2]
+            )
+            tile_b[ty, tx] = b_storage[b_pos]
+        else:
+            tile_b[ty, tx] = 0.0
 
-                # Calculate position in B
-                b_row = k
-                b_col = col
-                b_batch = bz if b_shape[0] > 1 else 0
-                b_pos = (b_batch * b_strides[0] + 
-                        b_row * b_strides[1] + 
-                        b_col * b_strides[2])
-                shared_b[tx, ty] = b_storage[b_pos]
+        # Synchronize threads
+        cuda.syncthreads()
 
-            # Ensure all threads have loaded their data
-            cuda.syncthreads()
+        # Compute partial dot product for this tile
+        if row < out_shape[1] and col < out_shape[2]:
+            for k in range(min(TILE_SIZE, a_shape[2] - t * TILE_SIZE)):
+                acc += tile_a[ty, k] * tile_b[k, tx]
 
-            # Compute partial dot product for this tile
-            for k in range(min(TILE_SIZE, K - t * TILE_SIZE)):
-                acc += shared_a[ty, k] * shared_b[k, tx]
+        # Synchronize before loading next tile
+        cuda.syncthreads()
 
-            # Synchronize before next iteration
-            cuda.syncthreads()
-
-        # Write result to global memory
-        out_batch = bz
-        out_pos = (out_batch * out_strides[0] + 
-                  row * out_strides[1] + 
-                  col * out_strides[2])
+    # Write final result to global memory
+    if row < out_shape[1] and col < out_shape[2]:
+        out_pos = batch * out_strides[0] + row * out_strides[1] + col * out_strides[2]
         out[out_pos] = acc
             
 
