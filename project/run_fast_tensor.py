@@ -143,10 +143,10 @@ class FastTrain:
                     print(f"\nEarly stopping at epoch {epoch}. Best accuracy: {best_accuracy:.2f}%")
                     break
         
-            total_time = time.time() - total_start
-            print(f"\nTraining completed in {total_time:.2f}s")
-            print(f"Average epoch time: {total_time/max_epochs:.3f}s")
-            print(f"Best accuracy achieved: {best_accuracy:.2f}%
+        total_time = time.time() - total_start
+        print(f"\nTraining completed in {total_time:.2f}s")
+        print(f"Average epoch time: {total_time/max_epochs:.3f}s")
+        print(f"Best accuracy achieved: {best_accuracy:.2f}s")
 
 
 if __name__ == "__main__":
