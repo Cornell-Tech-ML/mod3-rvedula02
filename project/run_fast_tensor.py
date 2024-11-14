@@ -22,32 +22,29 @@ def RParam(*shape, backend):
 class Network(minitorch.Module):
     def __init__(self, hidden, backend):
         super().__init__()
-
-        # Submodules
-        self.layer1 = Linear(2, hidden, backend)
-        self.layer2 = Linear(hidden, hidden, backend)
-        self.layer3 = Linear(hidden, 1, backend)
+        
+        # Improved initialization scale
+        self.layer1 = Linear(2, hidden, backend, scale=0.1)
+        self.layer2 = Linear(hidden, hidden, backend, scale=0.1)
+        self.layer3 = Linear(hidden, 1, backend, scale=0.1)
 
     def forward(self, x):
-        # Apply sigmoid activation after each linear layer
-        h = self.layer1(x).sigmoid()
-        h = self.layer2(h).sigmoid()
-        return self.layer3.forward(h).sigmoid()
-
+        # Use ReLU for intermediate layers
+        h = self.layer1(x).relu()
+        h = self.layer2(h).relu()
+        return self.layer3(h).sigmoid()  # Keep sigmoid for final layer
 
 class Linear(minitorch.Module):
-    def __init__(self, in_size, out_size, backend):
+    def __init__(self, in_size, out_size, backend, scale=1.0):
         super().__init__()
-        self.weights = RParam(in_size, out_size, backend=backend)
-        s = minitorch.zeros((out_size,), backend=backend)
-        s = s + 0.1
-        self.bias = minitorch.Parameter(s)
+        # Xavier initialization
+        bound = scale * (2.0 / (in_size + out_size)) ** 0.5
+        self.weights = RParam(in_size, out_size, backend=backend) * bound
+        self.bias = minitorch.Parameter(minitorch.zeros((out_size,), backend=backend))
         self.out_size = out_size
 
     def forward(self, x):
-        # Matrix multiply input with weights and add bias
         return x @ self.weights.value + self.bias.value
-
 
 class FastTrain:
     def __init__(self, hidden_layers, backend=FastTensorBackend):
@@ -62,11 +59,13 @@ class FastTrain:
         return self.model.forward(minitorch.tensor(X, backend=self.backend))
 
     def train(self, data, learning_rate, max_epochs=500, log_fn=default_log_fn):
-    
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
-        BATCH = 32  # Increased batch size for better GPU utilization
+        BATCH = 64  # Increased batch size
         losses = []
+        best_accuracy = 0
+        patience = 20
+        patience_counter = 0
         
         print(f"Training on {self.backend.__class__.__name__}")
         total_start = time.time()
@@ -75,6 +74,11 @@ class FastTrain:
             epoch_start = time.time()
             total_loss = 0.0
             correct = 0
+            
+            # Learning rate decay
+            current_lr = learning_rate * (0.95 ** (epoch // 50))
+            for param_group in optim.parameters():
+                param_group.learning_rate = current_lr
             
             # Shuffle data
             c = list(zip(data.X, data.y))
@@ -86,8 +90,8 @@ class FastTrain:
                 optim.zero_grad()
                 
                 # Get batch
-                batch_X = X_shuf[i : i + BATCH]
-                batch_y = y_shuf[i : i + BATCH]
+                batch_X = X_shuf[i : min(i + BATCH, len(X_shuf))]
+                batch_y = y_shuf[i : min(i + BATCH, len(X_shuf))]
                 
                 # Convert to tensors
                 X = minitorch.tensor(batch_X, backend=self.backend)
@@ -95,36 +99,54 @@ class FastTrain:
                 
                 # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
-                prob = (out * y) + (out - 1.0) * (y - 1.0)
-                loss = -prob.log()
+                
+                # Binary cross entropy loss
+                eps = 1e-7  # Prevent log(0)
+                out = out.clamp(eps, 1 - eps)
+                loss = -(y * out.log() + (1 - y) * (1 - out).log()).sum()
                 
                 # Backward pass
-                (loss / y.shape[0]).sum().view(1).backward()
+                (loss / y.shape[0]).backward()
                 
                 # Update total loss
-                total_loss += loss.sum().view(1)[0]
+                total_loss += loss.detach()[0] / y.shape[0]
                 
-                # Update weights
+                # Update weights with gradient clipping
+                for p in self.model.parameters():
+                    if p.value.grad is not None:
+                        p.value.grad.clamp_(-1, 1)
                 optim.step()
             
             losses.append(total_loss)
             epoch_time = time.time() - epoch_start
             
-            # Logging
+            # Evaluation
             if epoch % 10 == 0 or epoch == max_epochs - 1:
-                # Evaluate on full dataset
                 X = minitorch.tensor(data.X, backend=self.backend)
                 y = minitorch.tensor(data.y, backend=self.backend)
                 out = self.model.forward(X).view(y.shape[0])
                 y2 = minitorch.tensor(data.y)
                 correct = int(((out.detach() > 0.5) == y2).sum()[0])
+                accuracy = (correct/len(data.y))*100
                 
                 log_fn(epoch, total_loss, correct, losses)
-                print(f"Epoch time: {epoch_time:.3f}s, Accuracy: {(correct/len(data.y))*100:.2f}%")
+                print(f"Epoch time: {epoch_time:.3f}s, Accuracy: {accuracy:.2f}%, Learning rate: {current_lr:.6f}")
+                
+                # Early stopping
+                if accuracy > best_accuracy:
+                    best_accuracy = accuracy
+                    patience_counter = 0
+                else:
+                    patience_counter += 1
+                    
+                if patience_counter >= patience:
+                    print(f"\nEarly stopping at epoch {epoch}. Best accuracy: {best_accuracy:.2f}%")
+                    break
         
-        total_time = time.time() - total_start
-        print(f"\nTraining completed in {total_time:.2f}s")
-        print(f"Average epoch time: {total_time/max_epochs:.3f}s")
+            total_time = time.time() - total_start
+            print(f"\nTraining completed in {total_time:.2f}s")
+            print(f"Average epoch time: {total_time/max_epochs:.3f}s")
+            print(f"Best accuracy achieved: {best_accuracy:.2f}%
 
 
 if __name__ == "__main__":
