@@ -514,9 +514,12 @@ def _tensor_matrix_multiply(
     # Initialize accumulator
     acc = 0.0
 
+    # Calculate number of tiles needed
+    num_tiles = (a_shape[2] + TILE_SIZE - 1) // TILE_SIZE
+
     # Loop over tiles
-    for t in range((a_shape[2] + TILE_SIZE - 1) // TILE_SIZE):
-        # Load data into shared memory tiles
+    for t in range(num_tiles):
+        # Load data into shared memory tiles with bounds checking
         if row < a_shape[1] and t * TILE_SIZE + tx < a_shape[2]:
             a_pos = (
                 batch * a_batch_stride

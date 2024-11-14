@@ -1,7 +1,7 @@
 import random
 
 import numba
-
+import time
 import minitorch
 
 datasets = minitorch.datasets
@@ -62,42 +62,69 @@ class FastTrain:
         return self.model.forward(minitorch.tensor(X, backend=self.backend))
 
     def train(self, data, learning_rate, max_epochs=500, log_fn=default_log_fn):
+    
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
-        BATCH = 10
+        BATCH = 32  # Increased batch size for better GPU utilization
         losses = []
-
+        
+        print(f"Training on {self.backend.__class__.__name__}")
+        total_start = time.time()
+        
         for epoch in range(max_epochs):
+            epoch_start = time.time()
             total_loss = 0.0
+            correct = 0
+            
+            # Shuffle data
             c = list(zip(data.X, data.y))
             random.shuffle(c)
             X_shuf, y_shuf = zip(*c)
-
+            
+            # Batch processing
             for i in range(0, len(X_shuf), BATCH):
                 optim.zero_grad()
-                X = minitorch.tensor(X_shuf[i : i + BATCH], backend=self.backend)
-                y = minitorch.tensor(y_shuf[i : i + BATCH], backend=self.backend)
-                # Forward
-
+                
+                # Get batch
+                batch_X = X_shuf[i : i + BATCH]
+                batch_y = y_shuf[i : i + BATCH]
+                
+                # Convert to tensors
+                X = minitorch.tensor(batch_X, backend=self.backend)
+                y = minitorch.tensor(batch_y, backend=self.backend)
+                
+                # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
                 prob = (out * y) + (out - 1.0) * (y - 1.0)
                 loss = -prob.log()
+                
+                # Backward pass
                 (loss / y.shape[0]).sum().view(1).backward()
-
-                total_loss = loss.sum().view(1)[0]
-
-                # Update
+                
+                # Update total loss
+                total_loss += loss.sum().view(1)[0]
+                
+                # Update weights
                 optim.step()
-
+            
             losses.append(total_loss)
+            epoch_time = time.time() - epoch_start
+            
             # Logging
-            if epoch % 10 == 0 or epoch == max_epochs:
+            if epoch % 10 == 0 or epoch == max_epochs - 1:
+                # Evaluate on full dataset
                 X = minitorch.tensor(data.X, backend=self.backend)
                 y = minitorch.tensor(data.y, backend=self.backend)
                 out = self.model.forward(X).view(y.shape[0])
                 y2 = minitorch.tensor(data.y)
                 correct = int(((out.detach() > 0.5) == y2).sum()[0])
+                
                 log_fn(epoch, total_loss, correct, losses)
+                print(f"Epoch time: {epoch_time:.3f}s, Accuracy: {(correct/len(data.y))*100:.2f}%")
+        
+        total_time = time.time() - total_start
+        print(f"\nTraining completed in {total_time:.2f}s")
+        print(f"Average epoch time: {total_time/max_epochs:.3f}s")
 
 
 if __name__ == "__main__":
