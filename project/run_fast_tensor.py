@@ -39,7 +39,9 @@ class Linear(minitorch.Module):
         super().__init__()
         # Xavier initialization
         bound = scale * (2.0 / (in_size + out_size)) ** 0.5
-        self.weights = RParam(in_size, out_size, backend=backend) * bound
+        # Create the weights with proper initialization
+        raw_weights = minitorch.rand((in_size, out_size), backend=backend) * 2 - 1
+        self.weights = minitorch.Parameter(raw_weights * bound)
         self.bias = minitorch.Parameter(minitorch.zeros((out_size,), backend=backend))
         self.out_size = out_size
 
