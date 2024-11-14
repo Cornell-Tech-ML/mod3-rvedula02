@@ -493,76 +493,71 @@ def _tensor_matrix_multiply(
     bx = cuda.blockIdx.x
     by = cuda.blockIdx.y
     bz = cuda.blockIdx.z
-    
+
     # Calculate matrix dimensions
     batch = out_shape[0]  # Batch size
     M = out_shape[1]      # Output rows
     N = out_shape[2]      # Output columns
     K = a_shape[2]        # Inner dimension
 
-    # Define shared memory for tiles
+    # Calculate global row and column
+    row = by * cuda.blockDim.y + ty
+    col = bx * cuda.blockDim.x + tx
+
+    # Define shared memory tiles
     TILE_SIZE = 32
     shared_a = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
     shared_b = cuda.shared.array((TILE_SIZE, TILE_SIZE), numba.float64)
 
-    # Calculate global row and column
-    row = by * TILE_SIZE + ty
-    col = bx * TILE_SIZE + tx
-
     # Initialize accumulator
+    acc = 0.0
+
+    # Only compute if within matrix bounds
     if row < M and col < N:
-        # Create thread-local index arrays
-        out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        b_index = cuda.local.array(MAX_DIMS, numba.int32)
-        
-        # Set batch dimension
-        out_index[0] = bz
-        a_index[0] = bz
-        b_index[0] = bz
-        
-        # Set output indices
-        out_index[1] = row
-        out_index[2] = col
-        
-        # Calculate output position
-        out_pos = index_to_position(out_index, out_strides)
-        
-        # Initialize accumulator
-        temp = 0.0
-        
         # Loop over tiles
         for t in range((K + TILE_SIZE - 1) // TILE_SIZE):
-            # Load tile from A into shared memory
-            if (row < M and (t * TILE_SIZE + tx) < K):
-                a_index[1] = row
-                a_index[2] = t * TILE_SIZE + tx
-                shared_a[ty, tx] = a_storage[index_to_position(a_index, a_strides)]
-            else:
-                shared_a[ty, tx] = 0.0
+            # Clear shared memory tiles
+            shared_a[ty, tx] = 0.0
+            shared_b[ty, tx] = 0.0
+            cuda.syncthreads()
 
-            # Load tile from B into shared memory
-            if ((t * TILE_SIZE + ty) < K and col < N):
-                b_index[1] = t * TILE_SIZE + ty
-                b_index[2] = col
-                shared_b[ty, tx] = b_storage[index_to_position(b_index, b_strides)]
-            else:
-                shared_b[ty, tx] = 0.0
+            # Load data into shared memory tiles
+            k = t * TILE_SIZE + tx
+            if k < K:
+                # Calculate position in A
+                a_row = row
+                a_col = k
+                a_batch = bz if a_shape[0] > 1 else 0
+                a_pos = (a_batch * a_strides[0] + 
+                        a_row * a_strides[1] + 
+                        a_col * a_strides[2])
+                shared_a[ty, tx] = a_storage[a_pos]
+
+                # Calculate position in B
+                b_row = k
+                b_col = col
+                b_batch = bz if b_shape[0] > 1 else 0
+                b_pos = (b_batch * b_strides[0] + 
+                        b_row * b_strides[1] + 
+                        b_col * b_strides[2])
+                shared_b[tx, ty] = b_storage[b_pos]
 
             # Ensure all threads have loaded their data
             cuda.syncthreads()
 
             # Compute partial dot product for this tile
-            for k in range(TILE_SIZE):
-                if (t * TILE_SIZE + k) < K:
-                    temp += shared_a[ty, k] * shared_b[k, tx]
+            for k in range(min(TILE_SIZE, K - t * TILE_SIZE)):
+                acc += shared_a[ty, k] * shared_b[k, tx]
 
-            # Synchronize before loading next tile
+            # Synchronize before next iteration
             cuda.syncthreads()
 
         # Write result to global memory
-        if row < M and col < N:
-            out[out_pos] = temp
+        out_batch = bz
+        out_pos = (out_batch * out_strides[0] + 
+                  row * out_strides[1] + 
+                  col * out_strides[2])
+        out[out_pos] = acc
             
 
 tensor_matrix_multiply = jit(_tensor_matrix_multiply)
