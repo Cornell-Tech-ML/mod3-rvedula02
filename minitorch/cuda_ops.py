@@ -5,7 +5,7 @@ from typing import Callable, Optional, TypeVar, Any
 
 import numba
 from numba import cuda
-from numba.cuda import jit as _jit
+from numba import njit as _njit
 from .tensor import Tensor
 from .tensor_data import (
     MAX_DIMS,
