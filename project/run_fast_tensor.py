@@ -1,7 +1,7 @@
 import random
 
 import numba
-
+import time
 import minitorch
 
 datasets = minitorch.datasets
