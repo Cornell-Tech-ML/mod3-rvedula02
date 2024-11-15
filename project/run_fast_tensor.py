@@ -103,64 +103,64 @@ class FastTrain:
 
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
+
+        # Dynamically set batch size for better utilization
+        BATCH = 64 if self.backend.__class__.__name__ == "CudaOps" else 32
         
-        # Increased batch size for better GPU utilization
-        BATCH = 32 if self.backend.__class__.__name__ == "CudaOps" else 16
+        # Pre-load data to GPU memory to avoid repeated data transfer overhead
+        # Shuffle data and convert entire dataset to tensors
+        c = list(zip(data.X, data.y))
+        random.shuffle(c)
+        X_shuf, y_shuf = zip(*c)
+        X_all = minitorch.tensor(X_shuf, backend=self.backend)  # Entire dataset on GPU
+        y_all = minitorch.tensor(y_shuf, backend=self.backend)  # Entire dataset on GPU
+
+        # Set up tracking for losses
         losses = []
-        
+
         print(f"Training on {self.backend.__class__.__name__}")
         total_start = time.time()
-        
+
+        # Training loop
         for epoch in range(max_epochs):
             epoch_start = time.time()
             total_loss = 0.0
             
-            # Shuffle data
-            c = list(zip(data.X, data.y))
-            random.shuffle(c)
-            X_shuf, y_shuf = zip(*c)
-            
-            # Process in batches
+            # Process data in batches
             for i in range(0, len(X_shuf), BATCH):
                 batch_end = min(i + BATCH, len(X_shuf))
-                optim.zero_grad()
-                
-                # Convert batch to tensors
-                X = minitorch.tensor(X_shuf[i:batch_end], backend=self.backend)
-                y = minitorch.tensor(y_shuf[i:batch_end], backend=self.backend)
-                
+                optim.zero_grad()  # Zero gradients for each batch
+
+                # Slice the pre-loaded GPU tensors for the current batch
+                X_batch = X_all[i:batch_end]
+                y_batch = y_all[i:batch_end]
+
                 # Forward pass
-                out = self.model.forward(X).view(y.shape[0])
-                
-                # Compute loss (same as working code)
-                prob = (out * y) + (out - 1.0) * (y - 1.0)
+                out = self.model.forward(X_batch).view(y_batch.shape[0])
+
+                # Compute loss
+                prob = (out * y_batch) + (out - 1.0) * (y_batch - 1.0)
                 loss = -prob.log()
-                
-                # Backward pass
-                (loss / y.shape[0]).sum().view(1).backward()
-                
-                # Store loss
-                total_loss = loss.sum().view(1)[0]
-                
-                # Update parameters
+
+                # Backward pass and parameter update
+                (loss / y_batch.shape[0]).sum().view(1).backward()
                 optim.step()
-            
+
+                # Accumulate batch loss
+                total_loss += loss.sum().view(1)[0]
+
             losses.append(total_loss)
-            
-            # Evaluation and logging
+
+            # Logging and evaluation every 10 epochs
             if epoch % 10 == 0 or epoch == max_epochs - 1:
-                X = minitorch.tensor(data.X, backend=self.backend)
-                y = minitorch.tensor(data.y, backend=self.backend)
-                out = self.model.forward(X).view(y.shape[0])
-                y2 = minitorch.tensor(data.y)
-                correct = int(((out.detach() > 0.5) == y2).sum()[0])
-                
+                out = self.model.forward(X_all).view(y_all.shape[0])  # Forward on full dataset
+                correct = int(((out.detach() > 0.5) == y_all).sum()[0])  # Accuracy calculation
                 log_fn(epoch, total_loss, correct, losses)
-                print(f"Epoch time: {time.time() - epoch_start:.3f}s")
-        
+                print(f"Epoch {epoch} completed in {time.time() - epoch_start:.3f}s")
+
         total_time = time.time() - total_start
         print(f"\nTraining completed in {total_time:.2f}s")
-        print(f"Average epoch time: {total_time/max_epochs:.3f}s")
+        print(f"Average epoch time: {total_time / max_epochs:.3f}s")
 
 if __name__ == "__main__":
     import argparse
