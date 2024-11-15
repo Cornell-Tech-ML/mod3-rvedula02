@@ -105,12 +105,8 @@ class FastTrain:
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
         
         # Increased batch size for better GPU utilization
-        BATCH = 32 if self.backend.__class__.__name__ == "CudaOps" else 64
-        
+        BATCH = 32 if self.backend.__class__.__name__ == "CudaOps" else 16
         losses = []
-        best_accuracy = 0
-        patience = 15
-        patience_counter = 0
         
         print(f"Training on {self.backend.__class__.__name__}")
         total_start = time.time()
@@ -119,99 +115,53 @@ class FastTrain:
             epoch_start = time.time()
             total_loss = 0.0
             
-            # Shuffle indices
-            indices = list(range(len(data.X)))
-            random.shuffle(indices)
+            # Shuffle data
+            c = list(zip(data.X, data.y))
+            random.shuffle(c)
+            X_shuf, y_shuf = zip(*c)
             
             # Process in batches
-            for i in range(0, len(indices), BATCH):
+            for i in range(0, len(X_shuf), BATCH):
+                batch_end = min(i + BATCH, len(X_shuf))
                 optim.zero_grad()
                 
-                batch_indices = indices[i:min(i + BATCH, len(indices))]
-                batch_x = []
-                batch_y = []
-                
-                # Create batches
-                for idx in batch_indices:
-                    batch_x.append(data.X[idx])
-                    batch_y.append(data.y[idx])
-                
-                # Convert to tensors
-                X = minitorch.tensor(batch_x, backend=self.backend)
-                y = minitorch.tensor(batch_y, backend=self.backend)
+                # Convert batch to tensors
+                X = minitorch.tensor(X_shuf[i:batch_end], backend=self.backend)
+                y = minitorch.tensor(y_shuf[i:batch_end], backend=self.backend)
                 
                 # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
                 
-                # Implement clamping using basic operations
-                eps = 1e-7
-                zeros = minitorch.zeros(out.shape, backend=self.backend)
-                ones = zeros + 1.0
-                eps_tensor = zeros + eps
-                upper_bound = ones - eps_tensor
-                
-                # Manual implementation of clamping
-                out = out + (eps_tensor - out) * (out < eps_tensor)
-                out = out + (upper_bound - out) * (out > upper_bound)
-                
-                # Binary cross entropy loss with tensor operations
-                ones_like_y = minitorch.zeros(y.shape, backend=self.backend) + 1.0
-                zeros_like_y = minitorch.zeros(y.shape, backend=self.backend)
-                
-                # Compute loss using available operations
-                log_out = out.log()
-                log_one_minus_out = (ones_like_y - out).log()
-                loss = zeros_like_y - (y * log_out + (ones_like_y - y) * log_one_minus_out).sum()
+                # Compute loss (same as working code)
+                prob = (out * y) + (out - 1.0) * (y - 1.0)
+                loss = -prob.log()
                 
                 # Backward pass
-                (loss / y.shape[0]).backward()
+                (loss / y.shape[0]).sum().view(1).backward()
                 
-                # Gradient clipping using basic operations
-                for p in self.model.parameters():
-                    if p.value.grad is not None:
-                        grad = p.value.grad
-                        # Manual implementation of gradient clipping
-                        grad = grad + (-1.0 - grad) * (grad < -1.0)
-                        grad = grad + (1.0 - grad) * (grad > 1.0)
-                        p.value.grad = grad
+                # Store loss
+                total_loss = loss.sum().view(1)[0]
                 
+                # Update parameters
                 optim.step()
-                total_loss += loss.detach()[0] / y.shape[0]
             
-            # Evaluation
+            losses.append(total_loss)
+            
+            # Evaluation and logging
             if epoch % 10 == 0 or epoch == max_epochs - 1:
-                correct = 0
-                total = len(data.X)
-                
-                for i in range(0, total, BATCH):
-                    end = min(i + BATCH, total)
-                    X = minitorch.tensor(data.X[i:end], backend=self.backend)
-                    y = minitorch.tensor(data.y[i:end], backend=self.backend)
-                    out = self.model.forward(X).view(y.shape[0])
-                    pred = (out.detach() > 0.5)
-                    correct += int((pred == y).sum()[0])
-                
-                accuracy = (correct / total) * 100
+                X = minitorch.tensor(data.X, backend=self.backend)
+                y = minitorch.tensor(data.y, backend=self.backend)
+                out = self.model.forward(X).view(y.shape[0])
+                y2 = minitorch.tensor(data.y)
+                correct = int(((out.detach() > 0.5) == y2).sum()[0])
                 
                 log_fn(epoch, total_loss, correct, losses)
-                print(f"Epoch time: {time.time() - epoch_start:.3f}s, "
-                    f"Accuracy: {accuracy:.2f}%, LR: {learning_rate:.6f}")
-                
-                # Early stopping
-                if accuracy > best_accuracy:
-                    best_accuracy = accuracy
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                    
-                if patience_counter >= patience and epoch > 100:
-                    print(f"\nEarly stopping at epoch {epoch}. Best accuracy: {best_accuracy:.2f}%")
-                    break
+                print(f"Epoch time: {time.time() - epoch_start:.3f}s")
         
         total_time = time.time() - total_start
         print(f"\nTraining completed in {total_time:.2f}s")
         print(f"Average epoch time: {total_time/max_epochs:.3f}s")
-        print(f"Best accuracy achieved: {best_accuracy:.2f}%")
+
 if __name__ == "__main__":
     import argparse
 
