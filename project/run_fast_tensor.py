@@ -104,12 +104,8 @@ class FastTrain:
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
         
-        # Increased batch size for better parallelization
+        # Increased batch size for better GPU utilization
         BATCH = 32 if self.backend.__class__.__name__ == "CudaOps" else 64
-        
-        # Convert data to tensors once
-        data_x = minitorch.tensor(data.X, backend=self.backend)
-        data_y = minitorch.tensor(data.y, backend=self.backend)
         
         losses = []
         best_accuracy = 0
@@ -123,7 +119,7 @@ class FastTrain:
             epoch_start = time.time()
             total_loss = 0.0
             
-            # Shuffle indices instead of data
+            # Shuffle indices
             indices = list(range(len(data.X)))
             random.shuffle(indices)
             
@@ -135,21 +131,29 @@ class FastTrain:
                 batch_x = []
                 batch_y = []
                 
-                # Create batches manually
+                # Create batches
                 for idx in batch_indices:
                     batch_x.append(data.X[idx])
                     batch_y.append(data.y[idx])
                 
-                # Convert batches to tensors
+                # Convert to tensors
                 X = minitorch.tensor(batch_x, backend=self.backend)
                 y = minitorch.tensor(batch_y, backend=self.backend)
                 
                 # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
                 
-                # Compute loss with stability improvements
+                # Implement clamp using max/min operations
                 eps = 1e-7
-                out = out.clamp(eps, 1 - eps)
+                zeros = minitorch.zeros(out.shape, backend=self.backend)
+                ones = zeros + 1.0
+                eps_tensor = zeros + eps
+                upper_bound = ones - eps_tensor
+                
+                # Clamp between eps and 1-eps
+                out = out.maximum(eps_tensor).minimum(upper_bound)
+                
+                # Binary cross entropy loss
                 loss = -(y * out.log() + (1 - y) * (1 - out).log()).sum()
                 
                 # Backward pass
@@ -158,14 +162,18 @@ class FastTrain:
                 # Gradient clipping
                 for p in self.model.parameters():
                     if p.value.grad is not None:
-                        p.value.grad.clamp_(-1.0, 1.0)
+                        grad = p.value.grad
+                        # Implement gradient clipping using max/min
+                        clip_value = minitorch.tensor([1.0], backend=self.backend)
+                        neg_clip = minitorch.tensor([-1.0], backend=self.backend)
+                        grad = grad.maximum(neg_clip).minimum(clip_value)
+                        p.value.grad = grad
                 
                 optim.step()
                 total_loss += loss.detach()[0] / y.shape[0]
             
             # Evaluation
             if epoch % 10 == 0 or epoch == max_epochs - 1:
-                # Evaluate in smaller batches to avoid memory issues
                 correct = 0
                 total = len(data.X)
                 
@@ -174,7 +182,9 @@ class FastTrain:
                     X = minitorch.tensor(data.X[i:end], backend=self.backend)
                     y = minitorch.tensor(data.y[i:end], backend=self.backend)
                     out = self.model.forward(X).view(y.shape[0])
-                    correct += int(((out.detach() > 0.5) == y).sum()[0])
+                    threshold = minitorch.tensor([0.5], backend=self.backend)
+                    pred = (out.detach() > threshold)
+                    correct += int((pred == y).sum()[0])
                 
                 accuracy = (correct / total) * 100
                 
