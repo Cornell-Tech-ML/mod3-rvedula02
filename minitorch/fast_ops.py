@@ -356,9 +356,13 @@ def _tensor_matrix_multiply(
         None : Fills in `out`
 
     """
+    
+    # Constants for tiling
+    TILE_SIZE = 32  # Optimize for cache line size
+    
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
-
+    
     # Get matrix dimensions
     n_batches = max(a_shape[0] if len(a_shape) > 2 else 1, 
                    b_shape[0] if len(b_shape) > 2 else 1)
@@ -366,34 +370,38 @@ def _tensor_matrix_multiply(
     inner_size = a_shape[-1]
     col_size = b_shape[-1]
 
-    # Main parallel loop over batches and rows
+    # Main parallel loop over batches
     for batch in prange(n_batches):
         batch_offset_a = batch * a_batch_stride
         batch_offset_b = batch * b_batch_stride
         
-        for i in range(row_size):
-            for j in range(col_size):
-                # Get output position
-                out_pos = (
-                    batch * out_strides[0] +  # batch stride
-                    i * out_strides[-2] +     # row stride
-                    j * out_strides[-1]       # col stride
-                )
-                
-                # Initialize accumulator
-                acc = 0.0
-                
-                # Inner product loop
-                for k in range(inner_size):
-                    # Calculate positions in a and b
-                    a_pos = batch_offset_a + i * a_strides[-2] + k * a_strides[-1]
-                    b_pos = batch_offset_b + k * b_strides[-2] + j * b_strides[-1]
-                    
-                    # Multiply and accumulate
-                    acc += a_storage[a_pos] * b_storage[b_pos]
-                
-                # Store result
-                out[out_pos] = acc
+        # Tile the computation for better cache utilization
+        for i0 in range(0, row_size, TILE_SIZE):
+            for j0 in range(0, col_size, TILE_SIZE):
+                for k0 in range(0, inner_size, TILE_SIZE):
+                    # Process each tile
+                    for i in range(i0, min(i0 + TILE_SIZE, row_size)):
+                        # Pre-compute row offset for A
+                        a_row_offset = batch_offset_a + i * a_strides[-2]
+                        out_row_offset = batch * out_strides[0] + i * out_strides[-2]
+                        
+                        for j in range(j0, min(j0 + TILE_SIZE, col_size)):
+                            # Initialize accumulator
+                            acc = 0.0
+                            
+                            # Vectorized inner product loop
+                            for k in range(k0, min(k0 + TILE_SIZE, inner_size)):
+                                a_pos = a_row_offset + k * a_strides[-1]
+                                b_pos = batch_offset_b + k * b_strides[-2] + j * b_strides[-1]
+                                acc += a_storage[a_pos] * b_storage[b_pos]
+                            
+                            # Accumulate result
+                            out_pos = out_row_offset + j * out_strides[-1]
+                            if k0 == 0:
+                                out[out_pos] = acc
+                            else:
+                                out[out_pos] += acc
+
 
 
 tensor_matrix_multiply = njit(_tensor_matrix_multiply, parallel=True)
