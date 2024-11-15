@@ -316,73 +316,74 @@ def sum_practice(a: Tensor) -> TensorData:
 
 
 def tensor_reduce(
-    fn: Callable[[float, float], float],
+    fn: Callable[[float, float], float]
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
     """CUDA higher-order tensor reduce function.
 
     Args:
-    ----
-        fn: reduction function maps two floats to float.
+        fn: reduction function mapping two floats to float.
 
     Returns:
-    -------
-        Tensor reduce function.
-
+        Tensor reduce function
     """
 
     def _reduce(
         out: Storage,
         out_shape: Shape,
         out_strides: Strides,
-        out_size: int,
         a_storage: Storage,
         a_shape: Shape,
         a_strides: Strides,
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
-        BLOCK_DIM = 1024
-        cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+        # Get thread and block indices
+        tid = cuda.threadIdx.x
+        bid = cuda.blockIdx.x
+        
+        # Calculate total threads and blocks
+        bdim = cuda.blockDim.x
+        
+        # Shared memory for partial reductions
+        shared = cuda.shared.array(1024, numba.float64)
+        
+        # Calculate output position for this block
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        pos = cuda.threadIdx.x
-        out_pos = cuda.blockIdx.x
-
-        # Pre-calculate base input position
-        to_index(out_pos, out_shape, out_index)
-        base_position = index_to_position(out_index, a_strides)
+        to_index(bid, out_shape, out_index)
+        out_pos = index_to_position(out_index, out_strides)
         
-        # Pre-calculate the stride for reduce dimension
-        reduce_size = a_shape[reduce_dim]
-        reduce_stride = a_strides[reduce_dim]
+        # Initialize shared memory
+        shared[tid] = reduce_value
         
-        # Initialize accumulator with reduce_value
-        acc = reduce_value
-        
-        # Each thread processes elements with pre-calculated positions
-        for i in range(pos, reduce_size, BLOCK_DIM):
-            if i < reduce_size:
-                # Use pre-calculated base_position
-                cur_pos = base_position + i * reduce_stride
-                acc = fn(acc, a_storage[cur_pos])
-        
-        # Store in shared memory
-        cache[pos] = acc
+        # Calculate input indices and accumulate in shared memory
+        for i in range(tid, a_shape[reduce_dim], bdim):
+            # Copy output index to input index
+            in_index = cuda.local.array(MAX_DIMS, numba.int32)
+            for j in range(len(out_shape)):
+                in_index[j] = out_index[j]
+            # Set the reduced dimension index
+            in_index[reduce_dim] = i
+            # Calculate input position
+            in_pos = index_to_position(in_index, a_strides)
+            # Reduce into shared memory
+            shared[tid] = fn(shared[tid], a_storage[in_pos])
+            
+        # Synchronize threads
         cuda.syncthreads()
         
         # Reduce within block
-        stride = BLOCK_DIM // 2
-        while stride > 0:
-            if pos < stride:
-                cache[pos] = fn(cache[pos], cache[pos + stride])
+        s = bdim // 2
+        while s > 0:
+            if tid < s:
+                shared[tid] = fn(shared[tid], shared[tid + s])
             cuda.syncthreads()
-            stride //= 2
-        
-        # Write result
-        if pos == 0:
-            out[out_pos] = cache[0]
+            s //= 2
+            
+        # Write result to global memory
+        if tid == 0:
+            out[out_pos] = shared[0]
 
-
-        return jit(_reduce)  # type: ignore
+    return cuda.jit()(_reduce)  # type: ignore
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
