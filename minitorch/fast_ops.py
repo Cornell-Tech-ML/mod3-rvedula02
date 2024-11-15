@@ -172,6 +172,11 @@ def tensor_map(
     ) -> None:
         size = int(np.prod(out_shape))
         
+        # Add prefetch hint for better cache utilization
+        for i in range(0, size, 1024):
+            numba.prefetch(in_storage, i)
+            numba.prefetch(out, i)
+        
         # Fast path only if shapes and strides match exactly
         if (len(out_shape) == len(in_shape) and 
             np.array_equal(out_shape, in_shape) and
@@ -241,15 +246,15 @@ def tensor_zip(
                 out[i] = fn(a_storage[i], b_storage[i])
         else:
             # General case for broadcasting
-            
+            # Cache broadcast pattern for repeated use
+            broadcast_pattern = np.zeros((size, len(out_shape)), dtype=np.int32)
             for i in prange(size):
-                out_index = np.zeros(len(out_shape), dtype=np.int32)
+                to_index(i, out_shape, broadcast_pattern[i])
                 a_index = np.zeros(len(a_shape), dtype=np.int32)
                 b_index = np.zeros(len(b_shape), dtype=np.int32)
-                to_index(i, out_shape, out_index)
-                broadcast_index(out_index, out_shape, a_shape, a_index)
-                broadcast_index(out_index, out_shape, b_shape, b_index)
-                out_pos = index_to_position(out_index, out_strides)
+                broadcast_index(broadcast_pattern[i], out_shape, a_shape, a_index)
+                broadcast_index(broadcast_pattern[i], out_shape, b_shape, b_index)
+                out_pos = index_to_position(broadcast_pattern[i], out_strides)
                 a_pos = index_to_position(a_index, a_strides)
                 b_pos = index_to_position(b_index, b_strides)
                 out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
@@ -357,8 +362,11 @@ def _tensor_matrix_multiply(
 
     """
     
-    # Constants for tiling
-    TILE_SIZE = 32  # Optimize for cache line size
+    # Increase tile size for better GPU utilization
+    TILE_SIZE = 64  # Up from 32
+    
+    # Add register blocking
+    REGISTER_BLOCK = 4
     
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
@@ -378,29 +386,30 @@ def _tensor_matrix_multiply(
         # Tile the computation for better cache utilization
         for i0 in range(0, row_size, TILE_SIZE):
             for j0 in range(0, col_size, TILE_SIZE):
-                for k0 in range(0, inner_size, TILE_SIZE):
-                    # Process each tile
-                    for i in range(i0, min(i0 + TILE_SIZE, row_size)):
-                        # Pre-compute row offset for A
-                        a_row_offset = batch_offset_a + i * a_strides[-2]
-                        out_row_offset = batch * out_strides[0] + i * out_strides[-2]
+                # Add register blocking
+                for i1 in range(i0, min(i0 + TILE_SIZE, row_size), REGISTER_BLOCK):
+                    for j1 in range(j0, min(j0 + TILE_SIZE, col_size), REGISTER_BLOCK):
+                        # Initialize register block
+                        regs = [[0.0 for _ in range(REGISTER_BLOCK)] for _ in range(REGISTER_BLOCK)]
                         
-                        for j in range(j0, min(j0 + TILE_SIZE, col_size)):
-                            # Initialize accumulator
-                            acc = 0.0
-                            
-                            # Vectorized inner product loop
-                            for k in range(k0, min(k0 + TILE_SIZE, inner_size)):
-                                a_pos = a_row_offset + k * a_strides[-1]
-                                b_pos = batch_offset_b + k * b_strides[-2] + j * b_strides[-1]
-                                acc += a_storage[a_pos] * b_storage[b_pos]
-                            
-                            # Accumulate result
-                            out_pos = out_row_offset + j * out_strides[-1]
-                            if k0 == 0:
-                                out[out_pos] = acc
-                            else:
-                                out[out_pos] += acc
+                        # Compute register block
+                        for k in range(inner_size):
+                            for ri in range(REGISTER_BLOCK):
+                                for rj in range(REGISTER_BLOCK):
+                                    i, j = i1 + ri, j1 + rj
+                                    if i < row_size and j < col_size:
+                                        regs[ri][rj] += (
+                                            a_storage[batch_offset_a + i * a_strides[-2] + k * a_strides[-1]] *
+                                            b_storage[batch_offset_b + k * b_strides[-2] + j * b_strides[-1]]
+                                        )
+                        
+                        # Write register block
+                        for ri in range(REGISTER_BLOCK):
+                            for rj in range(REGISTER_BLOCK):
+                                i, j = i1 + ri, j1 + rj
+                                if i < row_size and j < col_size:
+                                    out_pos = batch * out_strides[0] + i * out_strides[-2] + j * out_strides[-1]
+                                    out[out_pos] = regs[ri][rj]
 
 
 
