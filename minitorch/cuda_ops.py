@@ -106,27 +106,28 @@ class CudaOps(TensorOps):
 
     #     return ret
     
-    @staticmethod
     def reduce(
         fn: Callable[[float, float], float], start: float = 0.0
     ) -> Callable[[Tensor, int], Tensor]:
-        """See `tensor_ops.py`"""
-        f = tensor_reduce(njit(fn))
+        """Reduce function"""
+        cufn: Callable[[float, float], float] = device_jit(fn)
+        f = tensor_reduce(cufn)
 
         def ret(a: Tensor, dim: int) -> Tensor:
             out_shape = list(a.shape)
-            out_shape[dim] = 1
+            out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
+            out_a = a.zeros(tuple(out_shape))
 
-            # Other values when not sum.
-            out = a.zeros(tuple(out_shape))
-            out._tensor._storage[:] = start
+            threadsperblock = 1024
+            blockspergrid = out_a.size
+            f[blockspergrid, threadsperblock](  # type: ignore
+                *out_a.tuple(), out_a.size, *a.tuple(), dim, start
+            )
 
-            f(*out.tuple(), *a.tuple(), dim)
-            return out
+            return out_a
 
         return ret
-
-        return ret
+    
     @staticmethod
     def matrix_multiply(a: Tensor, b: Tensor) -> Tensor:
         # Make these always be a 3 dimensional multiply
