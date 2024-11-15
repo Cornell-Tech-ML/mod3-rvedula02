@@ -520,22 +520,34 @@ def _tensor_matrix_multiply(
     # Loop over tiles
     for t in range(num_tiles):
         # Load data into shared memory tiles with bounds checking
-        if row < a_shape[1] and t * TILE_SIZE + tx < a_shape[2]:
-            a_pos = (
-                batch * a_batch_stride
-                + row * a_strides[1]
-                + (t * TILE_SIZE + tx) * a_strides[2]
-            )
+
+        # if row < a_shape[1] and t * TILE_SIZE + tx < a_shape[2]:
+        #     a_pos = (
+        #         batch * a_batch_stride
+        #         + row * a_strides[1]
+        #         + (t * TILE_SIZE + tx) * a_strides[2]
+        #     )
+        #     tile_a[ty, tx] = a_storage[a_pos]
+        # else:
+        #     tile_a[ty, tx] = 0.0
+
+        # if t * TILE_SIZE + ty < b_shape[1] and col < b_shape[2]:
+        #     b_pos = (
+        #         batch * b_batch_stride
+        #         + (t * TILE_SIZE + ty) * b_strides[1]
+        #         + col * b_strides[2]
+        #     )
+        #     tile_b[ty, tx] = b_storage[b_pos]
+        # else:
+        #     tile_b[ty, tx] = 0.0
+
+        if row < a_shape[1] and (t * TILE_SIZE + tx) < a_shape[2]:
             tile_a[ty, tx] = a_storage[a_pos]
         else:
             tile_a[ty, tx] = 0.0
 
-        if t * TILE_SIZE + ty < b_shape[1] and col < b_shape[2]:
-            b_pos = (
-                batch * b_batch_stride
-                + (t * TILE_SIZE + ty) * b_strides[1]
-                + col * b_strides[2]
-            )
+        # Load B into shared memory
+        if (t * TILE_SIZE + ty) < b_shape[1] and col < b_shape[2]:
             tile_b[ty, tx] = b_storage[b_pos]
         else:
             tile_b[ty, tx] = 0.0
