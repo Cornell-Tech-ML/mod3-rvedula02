@@ -347,41 +347,46 @@ def tensor_reduce(
         out_pos = cuda.blockIdx.x
         pos = cuda.threadIdx.x
 
+        pos = cuda.threadIdx.x
+        out_pos = cuda.blockIdx.x
+        
         if out_pos >= out_size:
             return
-
-        # Calculate position in output
-        to_index(out_pos, out_shape, out_index)
-
-        # Initialize reduction with first element
+            
+        # Initialize shared memory
+        BLOCK_DIM = 1024
+        cache = cuda.shared.array(BLOCK_DIM, numba.float64)
         cache[pos] = reduce_value
-
-        # Pre-calculate input index array outside the loop
-        a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        for i in range(len(out_shape)):
-            a_index[i] = out_index[i]
-
-        # Simplified loop without thread stride
-        for k in range(a_shape[reduce_dim]):
-            a_index[reduce_dim] = k
-            in_pos = index_to_position(a_index, a_strides)
-            cache[pos] = fn(cache[pos], a_storage[in_pos])
-
+        
+        # Calculate indices
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        to_index(out_pos, out_shape, out_index)
+        
+        # Calculate reduction size and scale factor
+        reduce_size = a_shape[reduce_dim]
+        scale = 1.0 / float(reduce_size)  # Add scaling factor
+        
+        # Parallel reduction with scaling
+        for idx in range(pos, reduce_size, BLOCK_DIM):
+            out_index[reduce_dim] = idx
+            a_pos = index_to_position(out_index, a_strides)
+            cache[pos] = fn(cache[pos], a_storage[a_pos] * scale)  # Scale during reduction
+            
         cuda.syncthreads()
-
-        # Fix parallel reduction within block
+        
+        # Tree reduction in shared memory
         stride = BLOCK_DIM // 2
         while stride > 0:
             if pos < stride:
                 cache[pos] = fn(cache[pos], cache[pos + stride])
             cuda.syncthreads()
             stride //= 2
-        
-        # Only first thread writes result
+            
+        # Write result
         if pos == 0:
-            out[index_to_position(out_index, out_strides)] = cache[0]
+            out[out_pos] = cache[0]
 
-    return jit(_reduce)  # type: ignore
+        return jit(_reduce)
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
