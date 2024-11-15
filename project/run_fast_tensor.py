@@ -143,15 +143,16 @@ class FastTrain:
                 # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
                 
-                # Implement clamp using max/min operations
+                # Implement clamping using basic operations
                 eps = 1e-7
                 zeros = minitorch.zeros(out.shape, backend=self.backend)
                 ones = zeros + 1.0
                 eps_tensor = zeros + eps
                 upper_bound = ones - eps_tensor
                 
-                # Clamp between eps and 1-eps
-                out = out.maximum(eps_tensor).minimum(upper_bound)
+                # Manual implementation of clamping
+                out = out + (eps_tensor - out) * (out < eps_tensor)
+                out = out + (upper_bound - out) * (out > upper_bound)
                 
                 # Binary cross entropy loss
                 loss = -(y * out.log() + (1 - y) * (1 - out).log()).sum()
@@ -159,14 +160,13 @@ class FastTrain:
                 # Backward pass
                 (loss / y.shape[0]).backward()
                 
-                # Gradient clipping
+                # Gradient clipping using basic operations
                 for p in self.model.parameters():
                     if p.value.grad is not None:
                         grad = p.value.grad
-                        # Implement gradient clipping using max/min
-                        clip_value = minitorch.tensor([1.0], backend=self.backend)
-                        neg_clip = minitorch.tensor([-1.0], backend=self.backend)
-                        grad = grad.maximum(neg_clip).minimum(clip_value)
+                        # Manual implementation of gradient clipping
+                        grad = grad + (-1.0 - grad) * (grad < -1.0)
+                        grad = grad + (1.0 - grad) * (grad > 1.0)
                         p.value.grad = grad
                 
                 optim.step()
@@ -182,8 +182,7 @@ class FastTrain:
                     X = minitorch.tensor(data.X[i:end], backend=self.backend)
                     y = minitorch.tensor(data.y[i:end], backend=self.backend)
                     out = self.model.forward(X).view(y.shape[0])
-                    threshold = minitorch.tensor([0.5], backend=self.backend)
-                    pred = (out.detach() > threshold)
+                    pred = (out.detach() > 0.5)
                     correct += int((pred == y).sum()[0])
                 
                 accuracy = (correct / total) * 100
