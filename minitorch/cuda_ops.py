@@ -321,16 +321,20 @@ def tensor_reduce(
     """CUDA higher-order tensor reduce function.
 
     Args:
-        fn: reduction function mapping two floats to float.
+    ----
+        fn: reduction function maps two floats to float.
 
     Returns:
-        Tensor reduce function
+    -------
+        Tensor reduce function.
+
     """
 
     def _reduce(
         out: Storage,
         out_shape: Shape,
         out_strides: Strides,
+        out_size: int,
         a_storage: Storage,
         a_shape: Shape,
         a_strides: Strides,
