@@ -109,7 +109,7 @@ class CudaOps(TensorOps):
     def reduce(
         fn: Callable[[float, float], float], start: float = 0.0
     ) -> Callable[[Tensor, int], Tensor]:
-        """Reduce function"""
+        """See `tensor_ops.py`"""
         f = tensor_reduce(device_jit(fn))
 
         def ret(a: Tensor, dim: int) -> Tensor:
@@ -117,22 +117,24 @@ class CudaOps(TensorOps):
             out_shape[dim] = 1
             out = a.zeros(tuple(out_shape))
             
-            # Configure kernel launch parameters
+            # Initialize output with start value
+            out._tensor._storage[:] = start
+            
+            # Configure kernel
             threadsperblock = 1024
             blockspergrid = out.size
             
             # Launch kernel
             f[blockspergrid, threadsperblock](
-                *out.tuple(), 
+                *out.tuple(),
                 out.size,
-                *a.tuple(), 
+                *a.tuple(),
                 dim,
                 start
             )
             return out
 
         return ret
-
     @staticmethod
     def matrix_multiply(a: Tensor, b: Tensor) -> Tensor:
         # Make these always be a 3 dimensional multiply
@@ -380,53 +382,42 @@ def tensor_reduce(
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
-        # Thread and block info
+        # Get thread/block indices
         tid = cuda.threadIdx.x
         bid = cuda.blockIdx.x
-        bdim = cuda.blockDim.x
         
-        # Shared memory for reduction
-        shared = cuda.shared.array(1024, numba.float64)
-        
-        # Calculate output position
-        out_pos = bid
-        if out_pos >= out_size:
+        # Exit if block id is out of bounds
+        if bid >= out_size:
             return
             
-        # Initialize indices
+        # Initialize output index
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        to_index(out_pos, out_shape, out_index)
+        to_index(bid, out_shape, out_index)
         
-        # Initialize reduction value
-        if tid == 0:
-            shared[0] = reduce_value
-            
-        cuda.syncthreads()
-        
-        # Calculate input indices and reduce
+        # Initialize input index
         a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        for j in range(len(out_shape)):
-            a_index[j] = out_index[j]
+        for i in range(len(out_shape)):
+            a_index[i] = out_index[i]
             
-        # Parallel reduction within block
-        for j in range(tid, a_shape[reduce_dim], bdim):
-            a_index[reduce_dim] = j
-            pos = index_to_position(a_index, a_strides)
-            shared[tid] = fn(shared[tid], a_storage[pos])
+        # Get output position
+        out_pos = index_to_position(out_index, out_strides)
+        
+        # Initialize with reduce_value
+        if tid == 0:
+            out[out_pos] = reduce_value
             
         cuda.syncthreads()
         
-        # Reduce within block
-        s = bdim // 2
-        while s > 0:
-            if tid < s:
-                shared[tid] = fn(shared[tid], shared[tid + s])
-            cuda.syncthreads()
-            s //= 2
+        # Each thread handles elements strided by thread block dimension
+        for j in range(tid, a_shape[reduce_dim], cuda.blockDim.x):
+            # Update input index for reduction dimension
+            a_index[reduce_dim] = j
+            # Get input position
+            a_pos = index_to_position(a_index, a_strides)
+            # Reduce atomically
+            cuda.atomic.max(out, out_pos, fn(out[out_pos], a_storage[a_pos]))
             
-        # Write result
-        if tid == 0:
-            out[out_pos] = shared[0]
+        cuda.syncthreads()
 
     return cuda.jit()(_reduce)
 
