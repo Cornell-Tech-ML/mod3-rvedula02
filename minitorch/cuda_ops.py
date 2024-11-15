@@ -365,40 +365,53 @@ def tensor_reduce(
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
-        BLOCK_DIM = 1024
-        cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-        out_index = cuda.local.array(MAX_DIMS, numba.int32)
-        out_pos = cuda.blockIdx.x
-        pos = cuda.threadIdx.x
+        def _reduce(
+        out: Storage,
+        out_shape: Shape,
+        out_strides: Strides,
+        out_size: int,
+        a_storage: Storage,
+        a_shape: Shape,
+        a_strides: Strides,
+        reduce_dim: int,
+        reduce_value: float,
+    ) -> None:
+            
+            BLOCK_DIM = 1024
+            cache = cuda.shared.array(BLOCK_DIM, numba.float64)
+            out_index = cuda.local.array(MAX_DIMS, numba.int32)
+            out_pos = cuda.blockIdx.x
+            pos = cuda.threadIdx.x
 
-        # Handle case where thread is out of bounds
-        if out_pos >= out_size:
-            return
+            # Handle case where thread is out of bounds
+            if out_pos >= out_size:
+                return
 
-        # Calculate position in output
-        to_index(out_pos, out_shape, out_index)
+            # Calculate position in output
+            to_index(out_pos, out_shape, out_index)
 
-        # Initialize reduction with first element
-        cache[pos] = reduce_value
+            # Initialize reduction with first element
+            cache[pos] = reduce_value
 
-        # Pre-calculate input index array to avoid repeated allocations
-        a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        for i in range(len(out_shape)):
-            a_index[i] = out_index[i]
+            # Pre-calculate input index array to avoid repeated allocations
+            a_index = cuda.local.array(MAX_DIMS, numba.int32)
+            for i in range(len(out_shape)):
+                a_index[i] = out_index[i]
 
-        # Loop over reduction dimension
-        for k in range(a_shape[reduce_dim]):
-            # Update only the reduction dimension index
-            a_index[reduce_dim] = k
-            in_pos = index_to_position(a_index, a_strides)
-            cache[pos] = fn(cache[pos], a_storage[in_pos])
+            # Loop over reduction dimension
+            for k in range(a_shape[reduce_dim]):
+                # Update only the reduction dimension index
+                a_index[reduce_dim] = k
+                in_pos = index_to_position(a_index, a_strides)
+                cache[pos] = fn(cache[pos], a_storage[in_pos])
 
-        cuda.syncthreads()
+            cuda.syncthreads()
 
-        # Write final reduced value to output
-        out[index_to_position(out_index, out_strides)] = cache[pos]
+            # Write final reduced value to output
+            out[index_to_position(out_index, out_strides)] = cache[pos]
 
-        return jit(_reduce)
+            return jit(_reduce)
+
 
 
 
