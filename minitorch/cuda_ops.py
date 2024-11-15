@@ -369,12 +369,13 @@ def tensor_reduce(
 
         cuda.syncthreads()
 
-        # Add parallel reduction within each block
-        if pos < BLOCK_DIM//2:
-            for stride in range(BLOCK_DIM//2, 0, stride//2):
-                if pos < stride:
-                    cache[pos] = fn(cache[pos], cache[pos + stride])
-                cuda.syncthreads()
+        # Fix parallel reduction within block
+        stride = BLOCK_DIM // 2
+        while stride > 0:
+            if pos < stride:
+                cache[pos] = fn(cache[pos], cache[pos + stride])
+            cuda.syncthreads()
+            stride //= 2
         
         # Only first thread writes result
         if pos == 0:
