@@ -100,21 +100,21 @@ class FastTrain:
         # print(f"\nTraining completed in {total_time:.2f}s")
         # print(f"Average epoch time: {total_time/max_epochs:.3f}s")
         # print(f"Best accuracy achieved: {best_accuracy:.2f}%")
+
         self.model = Network(self.hidden_layers, self.backend)
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
         
         # Increased batch size for better parallelization
-        BATCH = 128 if self.backend.__class__.__name__ == "CudaOps" else 64
+        BATCH = 32 if self.backend.__class__.__name__ == "CudaOps" else 64
         
-        # Pre-allocate tensors
-        X_tensor = minitorch.tensor(data.X, backend=self.backend)
-        y_tensor = minitorch.tensor(data.y, backend=self.backend)
+        # Convert data to tensors once
+        data_x = minitorch.tensor(data.X, backend=self.backend)
+        data_y = minitorch.tensor(data.y, backend=self.backend)
         
         losses = []
         best_accuracy = 0
         patience = 15
         patience_counter = 0
-        min_delta = 0.001
         
         print(f"Training on {self.backend.__class__.__name__}")
         total_start = time.time()
@@ -123,17 +123,26 @@ class FastTrain:
             epoch_start = time.time()
             total_loss = 0.0
             
-            # Learning rate scheduling
-            if epoch % 100 == 0 and epoch > 0:
-                learning_rate *= 0.75
+            # Shuffle indices instead of data
+            indices = list(range(len(data.X)))
+            random.shuffle(indices)
             
             # Process in batches
-            for i in range(0, len(data.X), BATCH):
+            for i in range(0, len(indices), BATCH):
                 optim.zero_grad()
                 
-                batch_end = min(i + BATCH, len(data.X))
-                X = X_tensor[i:batch_end]
-                y = y_tensor[i:batch_end]
+                batch_indices = indices[i:min(i + BATCH, len(indices))]
+                batch_x = []
+                batch_y = []
+                
+                # Create batches manually
+                for idx in batch_indices:
+                    batch_x.append(data.X[idx])
+                    batch_y.append(data.y[idx])
+                
+                # Convert batches to tensors
+                X = minitorch.tensor(batch_x, backend=self.backend)
+                y = minitorch.tensor(batch_y, backend=self.backend)
                 
                 # Forward pass
                 out = self.model.forward(X).view(y.shape[0])
@@ -143,34 +152,43 @@ class FastTrain:
                 out = out.clamp(eps, 1 - eps)
                 loss = -(y * out.log() + (1 - y) * (1 - out).log()).sum()
                 
-                # Backward pass with normalized gradients
+                # Backward pass
                 (loss / y.shape[0]).backward()
                 
                 # Gradient clipping
                 for p in self.model.parameters():
                     if p.value.grad is not None:
-                        p.value.grad.clamp_(-5.0, 5.0)
+                        p.value.grad.clamp_(-1.0, 1.0)
                 
                 optim.step()
                 total_loss += loss.detach()[0] / y.shape[0]
             
             # Evaluation
             if epoch % 10 == 0 or epoch == max_epochs - 1:
-                out = self.model.forward(X_tensor).view(y_tensor.shape[0])
-                correct = int(((out.detach() > 0.5) == y_tensor).sum()[0])
-                accuracy = (correct/len(data.y))*100
+                # Evaluate in smaller batches to avoid memory issues
+                correct = 0
+                total = len(data.X)
+                
+                for i in range(0, total, BATCH):
+                    end = min(i + BATCH, total)
+                    X = minitorch.tensor(data.X[i:end], backend=self.backend)
+                    y = minitorch.tensor(data.y[i:end], backend=self.backend)
+                    out = self.model.forward(X).view(y.shape[0])
+                    correct += int(((out.detach() > 0.5) == y).sum()[0])
+                
+                accuracy = (correct / total) * 100
                 
                 log_fn(epoch, total_loss, correct, losses)
                 print(f"Epoch time: {time.time() - epoch_start:.3f}s, "
                     f"Accuracy: {accuracy:.2f}%, LR: {learning_rate:.6f}")
                 
-                # Early stopping with improved criteria
-                if accuracy > best_accuracy + min_delta:
+                # Early stopping
+                if accuracy > best_accuracy:
                     best_accuracy = accuracy
                     patience_counter = 0
                 else:
                     patience_counter += 1
-                
+                    
                 if patience_counter >= patience and epoch > 100:
                     print(f"\nEarly stopping at epoch {epoch}. Best accuracy: {best_accuracy:.2f}%")
                     break
