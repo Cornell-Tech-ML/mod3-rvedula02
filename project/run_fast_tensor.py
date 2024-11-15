@@ -154,8 +154,9 @@ class FastTrain:
                 out = out + (eps_tensor - out) * (out < eps_tensor)
                 out = out + (upper_bound - out) * (out > upper_bound)
                 
-                # Binary cross entropy loss
-                loss = -(y * out.log() + (1 - y) * (1 - out).log()).sum()
+                # Binary cross entropy loss with tensor operations
+                ones = minitorch.ones(y.shape, backend=self.backend)
+                loss = zeros - (y * out.log() + (ones - y) * (ones - out).log()).sum()
                 
                 # Backward pass
                 (loss / y.shape[0]).backward()
@@ -206,7 +207,6 @@ class FastTrain:
         print(f"\nTraining completed in {total_time:.2f}s")
         print(f"Average epoch time: {total_time/max_epochs:.3f}s")
         print(f"Best accuracy achieved: {best_accuracy:.2f}%")
-
 
 if __name__ == "__main__":
     import argparse
