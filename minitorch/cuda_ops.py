@@ -5,7 +5,7 @@ from typing import Callable, Optional, TypeVar, Any
 
 import numba
 from numba import cuda
-from numba import njit as _njit
+from numba.cuda import jit as _jit
 from .tensor import Tensor
 from .tensor_data import (
     MAX_DIMS,
@@ -29,11 +29,13 @@ FakeCUDAKernel = Any
 Fn = TypeVar("Fn")
 
 
-def device_jit(fn: Fn, **kwargs) -> Fn:
+def device_jit(fn: Fn, **kwargs: Any) -> Fn:
+    """JIT compile a function for CUDA"""
     return _jit(device=True, **kwargs)(fn)  # type: ignore
 
 
-def jit(fn, **kwargs) -> FakeCUDAKernel:
+def jit(fn: Fn, **kwargs: Any) -> FakeCUDAKernel:
+    """JIT compile a function"""
     return _jit(**kwargs)(fn)  # type: ignore
 
 
@@ -42,7 +44,6 @@ index_to_position = device_jit(index_to_position)
 broadcast_index = device_jit(broadcast_index)
 
 THREADS_PER_BLOCK = 32
-
 
 class CudaOps(TensorOps):
     cuda = True
