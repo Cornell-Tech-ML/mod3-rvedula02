@@ -106,6 +106,7 @@ class CudaOps(TensorOps):
 
     #     return ret
     
+    @staticmethod
     def reduce(
         fn: Callable[[float, float], float], start: float = 0.0
     ) -> Callable[[Tensor, int], Tensor]:
@@ -341,18 +342,14 @@ def sum_practice(a: Tensor) -> TensorData:
 
 
 def tensor_reduce(
-    fn: Callable[[float, float], float],
-) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
+    fn: Callable[[float, float], float]
+) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int, float], None]:
     """CUDA higher-order tensor reduce function.
 
     Args:
-    ----
         fn: reduction function maps two floats to float.
-
     Returns:
-    -------
         Tensor reduce function.
-
     """
     def _reduce(
         out: Storage,
@@ -365,54 +362,55 @@ def tensor_reduce(
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
-        def _reduce(
-        out: Storage,
-        out_shape: Shape,
-        out_strides: Strides,
-        out_size: int,
-        a_storage: Storage,
-        a_shape: Shape,
-        a_strides: Strides,
-        reduce_dim: int,
-        reduce_value: float,
-    ) -> None:
+        # Get thread and block indices
+        tid = cuda.threadIdx.x
+        bid = cuda.blockIdx.x
+        
+        # Calculate total threads per block
+        bdim = cuda.blockDim.x
+        
+        # Shared memory for partial reductions
+        shared = cuda.shared.array(1024, numba.float64)
+        
+        # Calculate output position for this block
+        out_index = cuda.local.array(MAX_DIMS, numba.int32)
+        to_index(bid, out_shape, out_index)
+        out_pos = index_to_position(out_index, out_strides)
+        
+        # Initialize shared memory with reduction value
+        shared[tid] = reduce_value
+        
+        # Calculate input indices and accumulate in shared memory
+        for i in range(tid, a_shape[reduce_dim], bdim):
+            # Copy output index to input index
+            in_index = cuda.local.array(MAX_DIMS, numba.int32)
+            for j in range(len(out_shape)):
+                in_index[j] = out_index[j]
+            # Set the reduced dimension index
+            in_index[reduce_dim] = i
+            # Calculate input position
+            in_pos = index_to_position(in_index, a_strides)
+            # Reduce into shared memory
+            shared[tid] = fn(shared[tid], a_storage[in_pos])
             
-            BLOCK_DIM = 1024
-            cache = cuda.shared.array(BLOCK_DIM, numba.float64)
-            out_index = cuda.local.array(MAX_DIMS, numba.int32)
-            out_pos = cuda.blockIdx.x
-            pos = cuda.threadIdx.x
-
-            # Handle case where thread is out of bounds
-            if out_pos >= out_size:
-                return
-
-            # Calculate position in output
-            to_index(out_pos, out_shape, out_index)
-
-            # Initialize reduction with first element
-            cache[pos] = reduce_value
-
-            # Pre-calculate input index array to avoid repeated allocations
-            a_index = cuda.local.array(MAX_DIMS, numba.int32)
-            for i in range(len(out_shape)):
-                a_index[i] = out_index[i]
-
-            # Loop over reduction dimension
-            for k in range(a_shape[reduce_dim]):
-                # Update only the reduction dimension index
-                a_index[reduce_dim] = k
-                in_pos = index_to_position(a_index, a_strides)
-                cache[pos] = fn(cache[pos], a_storage[in_pos])
-
+        # Synchronize threads before reduction
+        cuda.syncthreads()
+        
+        # Reduce within block using tree reduction
+        s = bdim // 2
+        while s > 0:
+            if tid < s:
+                shared[tid] = fn(shared[tid], shared[tid + s])
             cuda.syncthreads()
+            s //= 2
+            
+        # Write final result to global memory
+        if tid == 0:
+            out[out_pos] = shared[0]
 
-            # Write final reduced value to output
-            out[index_to_position(out_index, out_strides)] = cache[pos]
+    return cuda.jit()(_reduce)
 
-            return jit(_reduce)
-
-
+    return cuda.jit()(_reduce)  # type: ignore
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
