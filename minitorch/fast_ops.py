@@ -315,35 +315,27 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # Calculate total elements in output
         out_size = 1
         for size in out_shape:
             out_size *= size
 
-        # Parallelize over output elements
         for out_pos in prange(out_size):
-            # Initialize index arrays
             out_index = np.empty(len(out_shape), np.int32)
             in_index = np.empty(len(a_shape), np.int32)
-            
-            # Convert output position to indices
             to_index(out_pos, out_shape, out_index)
-            in_index[:] = out_index[:]
             
-            # Initialize reduction
+            # Setup initial reduction value
+            in_index[:] = out_index[:]
             in_index[reduce_dim] = 0
             in_pos = index_to_position(in_index, a_strides)
             acc = a_storage[in_pos]
-
-            # Reduce along dimension with block processing
-            for j in range(1, a_shape[reduce_dim], 4):
-                end = min(j + 4, a_shape[reduce_dim])
-                for k in range(j, end):
-                    in_index[reduce_dim] = k
-                    in_pos = index_to_position(in_index, a_strides)
-                    acc = fn(acc, a_storage[in_pos])
-
-            # Store result
+            
+            # Reduce over the dimension
+            for j in range(1, a_shape[reduce_dim]):
+                in_index[reduce_dim] = j
+                in_pos = index_to_position(in_index, a_strides)
+                acc = fn(acc, a_storage[in_pos])
+            
             out_pos = index_to_position(out_index, out_strides)
             out[out_pos] = acc
 

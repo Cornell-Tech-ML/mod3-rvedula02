@@ -398,31 +398,28 @@ def tensor_reduce(
 
         if out_pos >= out_size:
             return
-        s = a_shape[reduce_dim]
 
         to_index(out_pos, out_shape, out_index)
         out_index[reduce_dim] = pos
-        a_index = cuda.local.array(MAX_DIMS, numba.int32)
-        for i in range(len(out_shape)):
-            a_index[i] = out_index[i]
-        if pos < s:
+        if pos < a_shape[reduce_dim]:
             j = index_to_position(out_index, a_strides)
             cache[pos] = a_storage[j]
         else:
             cache[pos] = reduce_value
-        cuda.syncthreads()
 
-        stri = BLOCK_DIM // 2
-        while stri > 0:
-            if pos < stri:
-                cache[pos] = fn(cache[pos], cache[pos + stri])
+        cuda.syncthreads()
+        
+        stride = BLOCK_DIM // 2
+        while stride > 0:
+            if pos < stride and pos + stride < a_shape[reduce_dim]:
+                cache[pos] = fn(cache[pos], cache[pos + stride])
             cuda.syncthreads()
-            stri //= 2
+            stride //= 2
 
         if pos == 0:
             out[out_pos] = cache[0]
 
-    return jit(_reduce)  # type: ignore
+    return jit(_reduce)
 
 
 def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
