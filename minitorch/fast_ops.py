@@ -240,7 +240,6 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
         # Special case - when tensors are stride-aligned, avoid indexing
         # Check if tensors are stride-aligned
         if (

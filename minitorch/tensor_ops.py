@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, Optional, Type
 
-from typing_extensions import Protocol
 import numpy as np
+from typing_extensions import Protocol
+
 from . import operators
 from .tensor_data import (
-    # MAX_DIMS,
     broadcast_index,
     index_to_position,
     shape_broadcast,
@@ -91,15 +91,6 @@ class TensorBackend:
         self.mul_reduce = ops.reduce(operators.mul, 1.0)
         self.matrix_multiply = ops.matrix_multiply
         self.cuda = ops.cuda
-
-    def relu(self, a: Tensor) -> Tensor:
-        """Apply the ReLU function to the tensor."""
-        return self.relu_map(a)
-
-    # def relu_map(self, a: Tensor) -> Tensor:
-    #     """Apply the ReLU function to the tensor."""
-    #     # return a.map(lambda x: max(x, 0.0))
-    #     return self.relu_map(a)
 
 
 class SimpleOps(TensorOps):
@@ -211,9 +202,9 @@ class SimpleOps(TensorOps):
         Args:
         ----
             fn: function from two floats-to-float to apply
-            start: initial value for reduction
             a (:class:`TensorData`): tensor to reduce over
             dim (int): int of dim to reduce
+            start (float): optional, start value for the reduction
 
         Returns:
         -------
@@ -282,16 +273,15 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 2.3.
         out_index = np.zeros(len(out_shape), dtype=np.int32)
         in_index = np.zeros(len(in_shape), dtype=np.int32)
+
         for i in range(len(out)):
             to_index(i, out_shape, out_index)
             broadcast_index(out_index, out_shape, in_shape, in_index)
-
-            out[index_to_position(out_index, out_strides)] = fn(
-                in_storage[index_to_position(in_index, in_strides)]
-            )
+            o = index_to_position(out_index, out_strides)
+            j = index_to_position(in_index, in_strides)
+            out[o] = fn(in_storage[j])
 
     return _map
 
@@ -337,23 +327,17 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 2.3.
         out_index = np.zeros(len(out_shape), dtype=np.int32)
         a_index = np.zeros(len(a_shape), dtype=np.int32)
         b_index = np.zeros(len(b_shape), dtype=np.int32)
-
         for i in range(len(out)):
             to_index(i, out_shape, out_index)
-
-            # Broadcast both a and b independently to out_shape
+            o = index_to_position(out_index, out_strides)
             broadcast_index(out_index, out_shape, a_shape, a_index)
+            j = index_to_position(a_index, a_strides)
             broadcast_index(out_index, out_shape, b_shape, b_index)
-
-            out_position = index_to_position(out_index, out_strides)
-            a_position = index_to_position(a_index, a_strides)
-            b_position = index_to_position(b_index, b_strides)
-
-            out[out_position] = fn(a_storage[a_position], b_storage[b_position])
+            k = index_to_position(b_index, b_strides)
+            out[o] = fn(a_storage[j], b_storage[k])
 
     return _zip
 
@@ -385,33 +369,15 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 2.3.
-        # Setup initial index arrays
         out_index = np.zeros(len(out_shape), dtype=np.int32)
-        a_index = np.zeros(len(a_shape), dtype=np.int32)
-
-        # Size of the dimension to reduce
         reduce_size = a_shape[reduce_dim]
-
         for i in range(len(out)):
-            # Convert flat index to tensor index for out
             to_index(i, out_shape, out_index)
-
-            # Copy out_index to a_index
-            a_index[:] = out_index[:]
-
-            # Initialize reduction with the first element
-            a_index[reduce_dim] = 0
-            reduce_value = a_storage[index_to_position(a_index, a_strides)]
-
-            # Reduce over the specified dimension
-            for j in range(1, reduce_size):
-                a_index[reduce_dim] = j
-                pos = index_to_position(a_index, a_strides)
-                reduce_value = fn(reduce_value, a_storage[pos])
-
-            # Store the result
-            out[index_to_position(out_index, out_strides)] = reduce_value
+            o = index_to_position(out_index, out_strides)
+            for s in range(reduce_size):
+                out_index[reduce_dim] = s
+                j = index_to_position(out_index, a_strides)
+                out[o] = fn(out[o], a_storage[j])
 
     return _reduce
 
