@@ -306,7 +306,6 @@ def tensor_reduce(
         Tensor reduce function
 
     """
-
     def _reduce(
         out: Storage,
         out_shape: Shape,
@@ -316,7 +315,6 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 3.1.
         # Calculate output size
         dim_count = len(out_shape)
         total_elements = 1
@@ -325,32 +323,32 @@ def tensor_reduce(
 
         # Main parallel loop over each element in the output tensor
         for linear_idx in prange(total_elements):
-            # Initialize index buffers for output and input tensors
-            output_indices = np.empty(dim_count, dtype=np.int32)
-            input_indices = np.empty(dim_count, dtype=np.int32)
-
+            # Use local arrays instead of numpy arrays
+            output_index = numba.int32[dim_count]  # Static-sized array
+            input_index = numba.int32[dim_count]   # Static-sized array
+            
             # Convert linear index to multi-dimensional indices for output
-            to_index(linear_idx, out_shape, output_indices)
-
-            # Determine the position in the output tensor
-            output_position = index_to_position(output_indices, out_strides)
-
-            # Copy the output indices to input indices for reduction
-            input_indices[:] = output_indices[:]
-
-            # Initialize reduction with the first element along the reduction dimension
-            input_indices[reduce_dim] = 0
-            initial_pos = index_to_position(input_indices, a_strides)
+            to_index(linear_idx, out_shape, output_index)
+            
+            # Copy indices directly
+            for i in range(dim_count):
+                input_index[i] = output_index[i]
+            
+            # Get output position
+            output_position = index_to_position(output_index, out_strides)
+            
+            # Initialize reduction
+            input_index[reduce_dim] = 0
+            initial_pos = index_to_position(input_index, a_strides)
             accumulated = a_storage[initial_pos]
-
-            # Perform reduction by iterating over the specified dimension
+            
+            # Perform reduction
             for dim_val in range(1, a_shape[reduce_dim]):
-                input_indices[reduce_dim] = dim_val
-                current_pos = index_to_position(input_indices, a_strides)
-                # Apply the reduction function
+                input_index[reduce_dim] = dim_val
+                current_pos = index_to_position(input_index, a_strides)
                 accumulated = fn(accumulated, a_storage[current_pos])
-
-            # Store the reduced result in the output tensor
+            
+            # Store result
             out[output_position] = accumulated
 
     return njit(_reduce, parallel=True)
