@@ -132,8 +132,7 @@ class CudaOps(TensorOps):
             Function that reduces a tensor along a dimension
 
         """
-        cufn: Callable[[float, float], float] = device_jit(fn)
-        f = tensor_reduce(cufn)
+        f = tensor_reduce(device_jit(fn))
 
         def ret(a: Tensor, dim: int) -> Tensor:
             out_shape = list(a.shape)
@@ -380,7 +379,6 @@ def tensor_reduce(
         Tensor reduce function.
 
     """
-
     def _reduce(
         out: Storage,
         out_shape: Shape,
@@ -398,7 +396,6 @@ def tensor_reduce(
         out_pos = cuda.blockIdx.x
         pos = cuda.threadIdx.x
 
-        # TODO: Implement for Task 3.3
         if out_pos >= out_size:
             return
         s = a_shape[reduce_dim]
