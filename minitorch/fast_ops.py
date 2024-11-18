@@ -260,28 +260,19 @@ def tensor_zip(
         for dim_size in out_shape:
             total_elements *= dim_size
 
-        for linear_idx in prange(total_elements):
-            # Initialize index buffers for each tensor
-            output_indices = np.empty(len(out_shape), dtype=np.int32)
-            a_indices = np.empty(len(a_shape), dtype=np.int32)
-            b_indices = np.empty(len(b_shape), dtype=np.int32)
-
-            # Convert linear index to multi-dimensional indices
-            to_index(linear_idx, out_shape, output_indices)
-
-            # Compute the position in the output tensor
-            output_pos = index_to_position(output_indices, out_strides)
-
-            # Map output indices to corresponding indices in 'a' tensor
-            broadcast_index(output_indices, out_shape, a_shape, a_indices)
-            a_pos = index_to_position(a_indices, a_strides)
-
-            # Map output indices to corresponding indices in 'b' tensor
-            broadcast_index(output_indices, out_shape, b_shape, b_indices)
-            b_pos = index_to_position(b_indices, b_strides)
-
-            # Apply the binary function and store the result
-            out[output_pos] = fn(a_storage[a_pos], b_storage[b_pos])
+        for i in prange(total_elements):
+            # Create index buffers per thread
+            out_index = np.empty(len(out_shape), np.int32)
+            a_index = np.empty(len(out_shape), np.int32)
+            b_index = np.empty(len(out_shape), np.int32)
+            # Convert position to indices and calculate positions
+            to_index(i, out_shape, out_index)
+            o_pos = index_to_position(out_index, out_strides)
+            broadcast_index(out_index, out_shape, a_shape, a_index)
+            a_pos = index_to_position(a_index, a_strides)
+            broadcast_index(out_index, out_shape, b_shape, b_index)
+            b_pos = index_to_position(b_index, b_strides)
+            out[o_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return njit(_zip, parallel=True)
 
