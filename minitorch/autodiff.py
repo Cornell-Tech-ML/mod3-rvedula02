@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Tuple, Protocol
+from typing import Any, Iterable, Tuple, Protocol, List
 
 
 # ## Task 1.1
@@ -11,29 +11,26 @@ from typing import Any, Iterable, Tuple, Protocol
 def central_difference(f: Any, *vals: Any, arg: int = 0, epsilon: float = 1e-6) -> Any:
     r"""Computes an approximation to the derivative of `f` with respect to one arg.
 
+    See :doc:`derivative` or https://en.wikipedia.org/wiki/Finite_difference for more details.
+
     Args:
     ----
-        f: Arbitrary function from n-scalar args to one value.
-        *vals: n-float values $x_0 \ldots x_{n-1}$.
-        arg: The number $i$ of the arg to compute the derivative.
-        epsilon: A small constant.
+        f : arbitrary function from n-scalar args to one value
+        *vals : n-float values $x_0 \ldots x_{n-1}$
+        arg : the number $i$ of the arg to compute the derivative
+        epsilon : a small constant
 
     Returns:
     -------
-        An approximation of $f'_i(x_0, \ldots, x_{n-1})$.
+        An approximation of $f'_i(x_0, \ldots, x_{n-1})$
 
     """
     vals_list = list(vals)
-    curr = vals_list[arg]
-    vals_list[arg] = curr + epsilon
+    vals_list[arg] += epsilon
     f_plus = f(*vals_list)
-
-    vals_list[arg] = curr - epsilon
+    vals_list[arg] -= 2 * epsilon
     f_minus = f(*vals_list)
-
-    central_diff = (f_plus - f_minus) / (2 * epsilon)
-
-    return central_diff
+    return (f_plus - f_minus) / (2 * epsilon)
 
 
 variable_count = 1
@@ -41,73 +38,29 @@ variable_count = 1
 
 class Variable(Protocol):
     def accumulate_derivative(self, x: Any) -> None:
-        """Accumulates the derivative of the variable with respect to a given value.
-
-        Args:
-        ----
-            x: The value with respect to which the derivative is to be accumulated.
-
-        Returns:
-        -------
-            None.
-
-        """
+        """Accumulates the derivative of the variable."""
         ...
 
     @property
     def unique_id(self) -> int:
-        """Returns a unique identifier for the variable.
-
-        Returns
-        -------
-            int: A unique identifier for the variable.
-
-        """
+        """Returns the unique identifier of the variable."""
         ...
 
     def is_leaf(self) -> bool:
-        """Checks if the variable is a leaf node in the computation graph.
-
-        Returns
-        -------
-            bool: True if the variable is a leaf node, False otherwise.
-
-        """
+        """Returns True if the variable is a leaf."""
         ...
 
     def is_constant(self) -> bool:
-        """Checks if the variable is a constant in the computation graph.
-
-        Returns
-        -------
-            bool: True if the variable is a constant, False otherwise.
-
-        """
+        """Returns True if the variable is a constant."""
         ...
 
     @property
     def parents(self) -> Iterable["Variable"]:
-        """Returns an iterable of the variable's parents in the computation graph.
-
-        Returns
-        -------
-            Iterable[Variable]: An iterable of the variable's parents.
-
-        """
+        """Returns the parents of the variable."""
         ...
 
     def chain_rule(self, d_output: Any) -> Iterable[Tuple[Variable, Any]]:
-        """Applies the chain rule to compute the derivative of the output with respect to this variable.
-
-        Args:
-        ----
-            d_output: The derivative of the output with respect to this variable.
-
-        Returns:
-        -------
-            Iterable[Tuple[Variable, Any]]: An iterable of tuples containing the variable and its derivative.
-
-        """
+        """Applies the chain rule to compute the derivatives of the inputs."""
         ...
 
 
@@ -116,55 +69,54 @@ def topological_sort(variable: Variable) -> Iterable[Variable]:
 
     Args:
     ----
-        variable: The right-most variable.
+        variable: The right-most variable
 
     Returns:
     -------
-        Iterable of variables in topological order.
+        Non-constant Variables in topological order starting from the right.
 
     """
     visited = set()
-    order = []
+    partial_order: List[Variable] = []
 
     def dfs(v: Variable) -> None:
-        if v.unique_id not in visited and not v.is_constant():
-            visited.add(v.unique_id)
-            for parent in v.parents:
+        if v.unique_id in visited or v.is_constant():
+            return
+        visited.add(v.unique_id)
+        for parent in v.parents:
+            if not parent.is_constant():
                 dfs(parent)
-            order.append(v)
+        partial_order.append(v)
 
     dfs(variable)
-    return reversed(order)  # Return in topological order
+    return reversed(partial_order)
 
 
 def backpropagate(variable: Variable, deriv: Any) -> None:
-    """Runs backpropagation on the computation graph in order to compute derivatives for the leaf nodes.
+    """Runs backpropagation on the computation graph to compute derivatives for the leaf nodes.
 
     Args:
     ----
         variable: The right-most variable.
-        deriv: Its derivative that we want to propagate backward to the leaves.
+        deriv: The derivative we want to propagate backward to the leaves.
 
     Returns:
     -------
-        None. Should write its results to the derivative values of each leaf through `accumulate_derivative`.
+    None: Updates the derivative values of each leaf through accumulate_derivative`.
 
     """
-    grad_table = {variable.unique_id: deriv}
-    # print(grad_table)
+    ordered_vars = topological_sort(variable)
+    derivatives = {variable.unique_id: deriv}
 
-    sorted_variables = topological_sort(variable)
-    for var in sorted_variables:
-        d_output = grad_table[var.unique_id]
-
+    for var in ordered_vars:
         if var.is_leaf():
-            var.accumulate_derivative(d_output)
+            var.accumulate_derivative(derivatives[var.unique_id])
         else:
-            for parent, d_input in var.chain_rule(d_output):
-                if parent.unique_id in grad_table:
-                    grad_table[parent.unique_id] += d_input
+            for parent, local_deriv in var.chain_rule(derivatives[var.unique_id]):
+                if parent.unique_id not in derivatives:
+                    derivatives[parent.unique_id] = local_deriv
                 else:
-                    grad_table[parent.unique_id] = d_input
+                    derivatives[parent.unique_id] += local_deriv
 
 
 @dataclass
@@ -178,10 +130,9 @@ class Context:
         """Store the given `values` if they need to be used during backpropagation."""
         if self.no_grad:
             return
-        # print(f"Saving values for backward: {values}")
         self.saved_values = values
 
     @property
     def saved_tensors(self) -> Tuple[Any, ...]:
-        """Returns the saved tensors for backward pass."""
+        """Returns the saved values."""
         return self.saved_values
