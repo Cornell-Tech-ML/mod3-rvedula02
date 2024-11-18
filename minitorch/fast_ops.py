@@ -6,6 +6,7 @@ import numpy as np
 from numba import prange
 from numba import njit as _njit
 
+
 from .tensor_data import (
     broadcast_index,
     index_to_position,
@@ -289,23 +290,7 @@ def tensor_zip(
 def tensor_reduce(
     fn: Callable[[float, float], float],
 ) -> Callable[[Storage, Shape, Strides, Storage, Shape, Strides, int], None]:
-    """NUMBA higher-order tensor reduce function. See `tensor_ops.py` for description.
-
-    Optimizations:
-
-    * Main loop in parallel
-    * All indices use numpy buffers
-    * Inner-loop should not call any functions or write non-local variables
-
-    Args:
-    ----
-        fn: reduction function mapping two floats to float.
-
-    Returns:
-    -------
-        Tensor reduce function
-
-    """
+    
     def _reduce(
         out: Storage,
         out_shape: Shape,
@@ -315,41 +300,18 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # Calculate output size
-        dim_count = len(out_shape)
-        total_elements = 1
-        for dim in out_shape:
-            total_elements *= dim
-
-        # Main parallel loop over each element in the output tensor
-        for linear_idx in prange(total_elements):
-            # Use local arrays instead of numpy arrays
-            output_index = numba.int32[dim_count]  # Static-sized array
-            input_index = numba.int32[dim_count]   # Static-sized array
-            
-            # Convert linear index to multi-dimensional indices for output
-            to_index(linear_idx, out_shape, output_index)
-            
-            # Copy indices directly
-            for i in range(dim_count):
-                input_index[i] = output_index[i]
-            
-            # Get output position
-            output_position = index_to_position(output_index, out_strides)
-            
-            # Initialize reduction
-            input_index[reduce_dim] = 0
-            initial_pos = index_to_position(input_index, a_strides)
-            accumulated = a_storage[initial_pos]
-            
-            # Perform reduction
-            for dim_val in range(1, a_shape[reduce_dim]):
-                input_index[reduce_dim] = dim_val
-                current_pos = index_to_position(input_index, a_strides)
-                accumulated = fn(accumulated, a_storage[current_pos])
-            
-            # Store result
-            out[output_position] = accumulated
+        # TODO: Implement for Task 3.1.
+        reduce_size = a_shape[reduce_dim]
+        for i in prange(len(out)):
+            out_index = np.zeros(len(out_shape), dtype=np.int32)
+            to_index(i, out_shape, out_index)
+            o = index_to_position(out_index, out_strides)
+            acc = out[o]  # Use accumulator variable
+            for s in range(reduce_size):
+                out_index[reduce_dim] = s
+                j = index_to_position(out_index, a_strides)
+                acc = fn(acc, a_storage[j])
+            out[o] = acc
 
     return njit(_reduce, parallel=True)
 
