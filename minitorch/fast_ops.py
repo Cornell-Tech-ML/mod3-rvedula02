@@ -306,6 +306,7 @@ def tensor_reduce(
         Tensor reduce function
 
     """
+
     def _reduce(
         out: Storage,
         out_shape: Shape,
@@ -315,36 +316,42 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
+        # TODO: Implement for Task 3.1.
         # Calculate output size
-        out_size = 1
-        for size in out_shape:
-            out_size *= size
+        dim_count = len(out_shape)
+        total_elements = 1
+        for dim in out_shape:
+            total_elements *= dim
 
-        # Parallelize over output positions
-        for out_pos in prange(out_size):
-            # Initialize index arrays
-            out_index = np.empty(len(out_shape), np.int32)
-            in_index = np.empty(len(a_shape), np.int32)
-            to_index(out_pos, out_shape, out_index)
-            
-            # Copy output index to input index
-            for i in range(len(out_shape)):
-                in_index[i] = out_index[i]
-            
-            # Initialize reduction
-            in_index[reduce_dim] = 0
-            in_pos = index_to_position(in_index, a_strides)
-            acc = a_storage[in_pos]
-            
-            # Reduce along dimension
-            for j in range(1, a_shape[reduce_dim]):
-                in_index[reduce_dim] = j
-                in_pos = index_to_position(in_index, a_strides)
-                acc = fn(acc, a_storage[in_pos])
-            
-            # Store result
-            out_pos = index_to_position(out_index, out_strides)
-            out[out_pos] = acc
+        # Main parallel loop over each element in the output tensor
+        for linear_idx in prange(total_elements):
+            # Initialize index buffers for output and input tensors
+            output_indices = np.empty(dim_count, dtype=np.int32)
+            input_indices = np.empty(dim_count, dtype=np.int32)
+
+            # Convert linear index to multi-dimensional indices for output
+            to_index(linear_idx, out_shape, output_indices)
+
+            # Determine the position in the output tensor
+            output_position = index_to_position(output_indices, out_strides)
+
+            # Copy the output indices to input indices for reduction
+            input_indices[:] = output_indices[:]
+
+            # Initialize reduction with the first element along the reduction dimension
+            input_indices[reduce_dim] = 0
+            initial_pos = index_to_position(input_indices, a_strides)
+            accumulated = a_storage[initial_pos]
+
+            # Perform reduction by iterating over the specified dimension
+            for dim_val in range(1, a_shape[reduce_dim]):
+                input_indices[reduce_dim] = dim_val
+                current_pos = index_to_position(input_indices, a_strides)
+                # Apply the reduction function
+                accumulated = fn(accumulated, a_storage[current_pos])
+
+            # Store the reduced result in the output tensor
+            out[output_position] = accumulated
 
     return njit(_reduce, parallel=True)
 
@@ -395,23 +402,20 @@ def _tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
-    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
-
-    # Parallelize over batches and rows
+    # TODO: Implement for Task 3.2.
     for i in prange(out_shape[0]):
-        for j in prange(out_shape[1]):  # Parallelize this loop too
+        for j in range(out_shape[1]):
             for k in range(out_shape[2]):
+                # Initialize accumulator for dot product
                 acc = 0.0
-                # Use block processing for better cache utilization
-                for l in range(0, a_shape[-1], 4):
-                    # Process 4 elements at a time when possible
-                    end = min(l + 4, a_shape[-1])
-                    for ll in range(l, end):
-                        a_pos = i * a_batch_stride + j * a_strides[1] + ll * a_strides[2]
-                        b_pos = i * b_batch_stride + ll * b_strides[1] + k * b_strides[2]
-                        acc += a_storage[a_pos] * b_storage[b_pos]
-                
+                # Compute dot product along shared dimension
+                for l in range(a_shape[-1]):
+                    # Get positions in a and b storage
+                    a_pos = i * a_batch_stride + j * a_strides[1] + l * a_strides[2]
+                    b_pos = i * b_batch_stride + l * b_strides[1] + k * b_strides[2]
+                    # Multiply and accumulate
+                    acc += a_storage[a_pos] * b_storage[b_pos]
+                # Write result to output
                 out_pos = i * out_strides[0] + j * out_strides[1] + k * out_strides[2]
                 out[out_pos] = acc
 
