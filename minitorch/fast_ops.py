@@ -188,7 +188,7 @@ def tensor_map(
         total_elements = np.prod(out_shape)
 
         # Main parallel processing loop
-        for pos in prange(total_elements):
+        for i in prange(total_elements):
             # Create index buffers per thread
             out_index = np.empty(len(out_shape), np.int32)
             in_index = np.empty(len(in_shape), np.int32)
