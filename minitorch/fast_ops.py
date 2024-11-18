@@ -402,20 +402,23 @@ def _tensor_matrix_multiply(
     a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
     b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
 
-    # TODO: Implement for Task 3.2.
+    a_batch_stride = a_strides[0] if a_shape[0] > 1 else 0
+    b_batch_stride = b_strides[0] if b_shape[0] > 1 else 0
+
+    # Parallelize over batches and rows
     for i in prange(out_shape[0]):
-        for j in range(out_shape[1]):
+        for j in prange(out_shape[1]):  # Parallelize this loop too
             for k in range(out_shape[2]):
-                # Initialize accumulator for dot product
                 acc = 0.0
-                # Compute dot product along shared dimension
-                for l in range(a_shape[-1]):
-                    # Get positions in a and b storage
-                    a_pos = i * a_batch_stride + j * a_strides[1] + l * a_strides[2]
-                    b_pos = i * b_batch_stride + l * b_strides[1] + k * b_strides[2]
-                    # Multiply and accumulate
-                    acc += a_storage[a_pos] * b_storage[b_pos]
-                # Write result to output
+                # Use block processing for better cache utilization
+                for l in range(0, a_shape[-1], 4):
+                    # Process 4 elements at a time when possible
+                    end = min(l + 4, a_shape[-1])
+                    for ll in range(l, end):
+                        a_pos = i * a_batch_stride + j * a_strides[1] + ll * a_strides[2]
+                        b_pos = i * b_batch_stride + ll * b_strides[1] + k * b_strides[2]
+                        acc += a_storage[a_pos] * b_storage[b_pos]
+                
                 out_pos = i * out_strides[0] + j * out_strides[1] + k * out_strides[2]
                 out[out_pos] = acc
 
