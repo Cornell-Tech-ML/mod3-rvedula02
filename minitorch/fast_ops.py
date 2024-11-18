@@ -189,20 +189,19 @@ def tensor_map(
 
         # Main parallel processing loop
         for pos in prange(total_elements):
-            # Initialize coordinate arrays
-            out_coords = np.empty(len(out_shape), np.int32)
-            in_coords = np.empty(len(in_shape), np.int32)
-
-            # Convert linear position to coordinates
-            to_index(pos, out_shape, out_coords)
-
-            # Map coordinates to storage positions
-            out_pos = index_to_position(out_coords, out_strides)
-            broadcast_index(out_coords, out_shape, in_shape, in_coords)
-            in_pos = index_to_position(in_coords, in_strides)
-
-            # Apply the function
-            out[out_pos] = fn(in_storage[in_pos])
+            # Create index buffers per thread
+            out_index = np.empty(len(out_shape), np.int32)
+            in_index = np.empty(len(in_shape), np.int32)
+            # Convert position to indices
+            to_index(i, out_shape, out_index)
+            # Calculate output position
+            o_pos = index_to_position(out_index, out_strides)
+            # Map output index to input index
+            broadcast_index(out_index, out_shape, in_shape, in_index)
+            # Calculate input position
+            i_pos = index_to_position(in_index, in_strides)
+            # Apply function
+            out[o_pos] = fn(in_storage[i_pos])
 
     return njit(_map, parallel=True)
 
