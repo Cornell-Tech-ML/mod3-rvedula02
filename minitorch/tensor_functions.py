@@ -101,18 +101,6 @@ class Add(Function):
         return grad_output, grad_output
 
 
-class Sub(Function):
-    @staticmethod
-    def forward(ctx: Context, t1: Tensor, t2: Tensor) -> Tensor:
-        """Subtract two tensors element-wise"""
-        return t1.f.sub_zip(t1, t2)
-
-    @staticmethod
-    def backward(ctx: Context, grad_output: Tensor) -> Tuple[Tensor, Tensor]:
-        """Return the gradients of the output with respect to the inputs"""
-        return grad_output, -grad_output
-
-
 class All(Function):
     @staticmethod
     def forward(ctx: Context, a: Tensor, dim: Tensor) -> Tensor:
