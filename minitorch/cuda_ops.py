@@ -234,10 +234,13 @@ def tensor_map(
         # TODO: Implement for Task 3.3.
         if i < out_size:
             to_index(i, out_shape, out_index)
+            # Calculate output position
+            out_pos = index_to_position(out_index, out_strides)
+            # Handle broadcasting for input
             broadcast_index(out_index, out_shape, in_shape, in_index)
-            out[index_to_position(out_index, out_strides)] = fn(
-                in_storage[index_to_position(in_index, in_strides)]
-            )
+            in_pos = index_to_position(in_index, in_strides)
+            # Apply function and store result
+            out[out_pos] = fn(in_storage[in_pos])
 
     return cuda.jit()(_map)  # type: ignore
 
