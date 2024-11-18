@@ -285,12 +285,15 @@ def tensor_zip(
         # TODO: Implement for Task 3.3.
         if i < out_size:
             to_index(i, out_shape, out_index)
+            # Calculate output position
+            out_pos = index_to_position(out_index, out_strides)
+            # Handle broadcasting for both inputs
             broadcast_index(out_index, out_shape, a_shape, a_index)
             broadcast_index(out_index, out_shape, b_shape, b_index)
-            out[index_to_position(out_index, out_strides)] = fn(
-                a_storage[index_to_position(a_index, a_strides)],
-                b_storage[index_to_position(b_index, b_strides)],
-            )
+            a_pos = index_to_position(a_index, a_strides)
+            b_pos = index_to_position(b_index, b_strides)
+            # Apply function and store result
+            out[out_pos] = fn(a_storage[a_pos], b_storage[b_pos])
 
     return cuda.jit()(_zip)  # type: ignore
 
