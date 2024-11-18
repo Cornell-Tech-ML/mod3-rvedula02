@@ -14,38 +14,31 @@ if TYPE_CHECKING:
 
 
 def wrap_tuple(x: float | Tuple[float, ...]) -> Tuple[float, ...]:
-    """Turn a possible value into a tuple.
-
-    Args:
-    ----
-        x: A float or a tuple of floats.
-
-    Returns:
-    -------
-        A tuple of floats.
-
-    """
+    """Turn a possible value into a tuple"""
     if isinstance(x, tuple):
         return x
     return (x,)
 
 
 class ScalarFunction:
-    """A wrapper for a mathematical function that processes and produces Scalar variables."""
+    """A wrapper for a mathematical function that processes and produces
+    Scalar variables.
+
+    This is a static class and is never instantiated. We use `class`
+    here to group together the `forward` and `backward` code.
+    """
+
+    @classmethod
+    def _backward(cls, ctx: Context, d_out: float) -> Tuple[float, ...]:
+        return wrap_tuple(cls.backward(ctx, d_out))  # type: ignore
+
+    @classmethod
+    def _forward(cls, ctx: Context, *inps: float) -> float:
+        return cls.forward(ctx, *inps)  # type: ignore
 
     @classmethod
     def apply(cls, *vals: ScalarLike) -> Scalar:
-        """Applies the function to the given scalar values.
-
-        Args:
-        ----
-            vals: Scalar values to apply the function to.
-
-        Returns:
-        -------
-            A Scalar object resulting from the function application.
-
-        """
+        """Apply the scalar function to the given values."""
         raw_vals = []
         scalars = []
         for v in vals:
@@ -67,31 +60,6 @@ class ScalarFunction:
         back = minitorch.scalar.ScalarHistory(cls, ctx, scalars)
         return minitorch.scalar.Scalar(c, back)
 
-    @classmethod
-    def _backward(cls, ctx: Context, d_out: float) -> Tuple[float, ...]:
-        """Computes the backward pass for the function."""
-        if not hasattr(cls, "backward"):
-            raise NotImplementedError(
-                f"{cls.__name__} must implement a backward method."
-            )
-        return wrap_tuple(cls.backward(ctx, d_out))  # type: ignore
-
-    @classmethod
-    def _forward(cls, ctx: Context, *inps: float) -> float:
-        """Computes the forward pass for the function.
-
-        Args:
-        ----
-            ctx: The context for this operation.
-            inps: Input values for the function.
-
-        Returns:
-        -------
-            The result of the forward computation.
-
-        """
-        return cls.forward(ctx, *inps)  # type: ignore
-
 
 # Examples
 class Add(ScalarFunction):
@@ -103,16 +71,12 @@ class Add(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: First operand.
-            b: Second operand.
-
-        Returns:
-        -------
-            The result of the addition.
+            ctx (Context): The context to save variables for backward.
+            a (float): The first input scalar.
+            b (float): The second input scalar.
 
         """
-        return a + b
+        return operators.add(a, b)
 
     @staticmethod
     def backward(ctx: Context, d_output: float) -> Tuple[float, ...]:
@@ -120,12 +84,8 @@ class Add(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
-
-        Returns:
-        -------
-            The derivatives with respect to the inputs.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         """
         return d_output, d_output
@@ -140,40 +100,29 @@ class Log(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
-
-        Returns:
-        -------
-            The logarithm of the input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         """
         ctx.save_for_backward(a)
         return operators.log(a)
 
     @staticmethod
-    def backward(ctx: Context, d_output: float) -> Tuple[float]:
+    def backward(ctx: Context, d_output: float) -> float:
         """Backward pass for logarithm.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
-
-        Returns:
-        -------
-            The derivative of the logarithm with respect to the input.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         """
         (a,) = ctx.saved_values
-        return (operators.log_back(a, d_output),)
-
-
-# To implement.
+        return operators.log_back(a, d_output)
 
 
 class Mul(ScalarFunction):
-    """Multiplication function $f(x, y) = x * y$"""
+    """Multiplication function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float, b: float) -> float:
@@ -181,17 +130,17 @@ class Mul(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: First operand.
-            b: Second operand.
+            ctx (Context): The context to save variables for backward.
+            a (float): The first input scalar.
+            b (float): The second input scalar.
 
         Returns:
         -------
-            The product of the two operands.
+            float: The product of a and b.
 
         """
         ctx.save_for_backward(a, b)
-        return a * b
+        return operators.mul(a, b)
 
     @staticmethod
     def backward(ctx: Context, d_output: float) -> Tuple[float, float]:
@@ -199,20 +148,20 @@ class Mul(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivatives with respect to the inputs.
+            Tuple[float, float]: Gradients with respect to a and b.
 
         """
-        (a, b) = ctx.saved_values
-        return (d_output * b, d_output * a)
+        a, b = ctx.saved_values
+        return (b * d_output, a * d_output)
 
 
 class Inv(ScalarFunction):
-    """Inverse function $f(x) = 1 / x$"""
+    """Inverse function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float) -> float:
@@ -220,16 +169,16 @@ class Inv(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         Returns:
         -------
-            The inverse of the input value.
+            float: The inverse of a.
 
         """
         ctx.save_for_backward(a)
-        return 1 / float(a)
+        return operators.inv(a)
 
     @staticmethod
     def backward(ctx: Context, d_output: float) -> Tuple[float]:
@@ -237,20 +186,20 @@ class Inv(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivative of the inverse with respect to the input.
+            Tuple[float]: Gradient with respect to a.
 
         """
         (a,) = ctx.saved_values
-        return (-d_output / (a**2),)
+        return ((-(operators.inv(a) ** 2)) * d_output,)
 
 
 class Neg(ScalarFunction):
-    """Negation function $f(x) = -x$"""
+    """Negation function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float) -> float:
@@ -258,35 +207,35 @@ class Neg(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         Returns:
         -------
-            The negation of the input value.
+            float: The negation of a.
 
         """
-        return float(-a)
+        return operators.neg(a)
 
     @staticmethod
-    def backward(ctx: Context, d_output: float) -> Tuple[float]:
+    def backward(ctx: Context, d_output: float) -> float:
         """Backward pass for negation.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context from forward (no variables saved).
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivative of the negation with respect to the input.
+            Tuple[float]: Gradient with respect to a.
 
         """
-        return (-d_output,)  # Return as a tuple
+        return -d_output
 
 
 class Sigmoid(ScalarFunction):
-    """Sigmoid function $f(x) = 1 / (1 + exp(-x))$"""
+    """Sigmoid function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float) -> float:
@@ -294,38 +243,38 @@ class Sigmoid(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         Returns:
         -------
-            The sigmoid of the input value.
+            float: The sigmoid of a.
 
         """
-        result = 1 / (1 + operators.exp(-a))
-        ctx.save_for_backward(result)
-        return result
+        sig = operators.sigmoid(a)
+        ctx.save_for_backward(sig)
+        return sig
 
     @staticmethod
-    def backward(ctx: Context, d_output: float) -> Tuple[float]:
+    def backward(ctx: Context, d_output: float) -> float:
         """Backward pass for sigmoid.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivative of the sigmoid with respect to the input.
+            float: Gradient with respect to a.
 
         """
-        (sigmoid_result,) = ctx.saved_values
-        return (d_output * sigmoid_result * (1 - sigmoid_result),)
+        (sig,) = ctx.saved_values
+        return sig * (1 - sig) * d_output
 
 
 class ReLU(ScalarFunction):
-    """ReLU function $f(x) = max(0, x)$"""
+    """ReLU function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float) -> float:
@@ -333,38 +282,38 @@ class ReLU(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         Returns:
         -------
-            The ReLU of the input value.
+            float: The ReLU of a.
 
         """
+        relu_val = operators.relu(a)
         ctx.save_for_backward(a)
-        return float(max(0, a))
+        return relu_val
 
     @staticmethod
-    def backward(ctx: Context, d_output: float) -> Tuple[float]:
+    def backward(ctx: Context, d_output: float) -> float:
         """Backward pass for ReLU.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivative of the ReLU with respect to the input.
+            float: Gradient with respect to a.
 
         """
-        if not ctx.saved_values:
-            return (0,)
-        return (d_output,) if ctx.saved_values[0] > 0 else (0,)
+        (a,) = ctx.saved_values
+        return operators.relu_back(a, d_output)
 
 
 class Exp(ScalarFunction):
-    """Exponential function $f(x) = exp(x)$"""
+    """Exponential function for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float) -> float:
@@ -372,104 +321,107 @@ class Exp(ScalarFunction):
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: The input value.
+            ctx (Context): The context to save variables for backward.
+            a (float): The input scalar.
 
         Returns:
         -------
-            The exponential of the input value.
+            float: The exponential of a.
 
         """
-        ctx.save_for_backward(a)
-        return operators.exp(a)
+        exp_val = operators.exp(a)
+        ctx.save_for_backward(exp_val)
+        return exp_val
 
     @staticmethod
-    def backward(ctx: Context, d_output: float) -> Tuple[float]:
+    def backward(ctx: Context, d_output: float) -> float:
         """Backward pass for exponential.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context with saved variables from forward.
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivative of the exponential with respect to the input.
+            float: Gradient with respect to a.
 
         """
-        (a,) = ctx.saved_values
-        return (d_output * operators.exp(a),)
+        (exp_val,) = ctx.saved_values
+        return exp_val * d_output
 
 
 class LT(ScalarFunction):
-    """Less than function $f(x, y) = x < y$"""
+    """Less than comparison for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float, b: float) -> float:
-        """Forward pass for less than.
+        """Forward pass for less than comparison.
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: First operand.
-            b: Second operand.
+            ctx (Context): The context (no variables saved).
+            a (float): The first input scalar.
+            b (float): The second input scalar.
 
         Returns:
         -------
-            The result of the less than comparison.
+            float: 1.0 if a < b else 0.0.
 
         """
-        return float(a < b)
+        return operators.lt(a, b)
 
     @staticmethod
     def backward(ctx: Context, d_output: float) -> Tuple[float, float]:
-        """Backward pass for less than.
+        """Backward pass for less than comparison.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context from forward (no variables saved).
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivatives with respect to the inputs.
+            Tuple[float, float]: Gradients with respect to a and b.
 
         """
-        return (0.0, 0.0)
+        # Comparison operations are non-differentiable; gradients are zero.
+        return 0.0, 0.0
 
 
 class EQ(ScalarFunction):
-    """Equality function $f(x, y) = x == y$"""
+    """Equality comparison for scalars."""
 
     @staticmethod
     def forward(ctx: Context, a: float, b: float) -> float:
-        """Forward pass for equality.
+        """Forward pass for equality comparison.
 
         Args:
         ----
-            ctx: The context for this operation.
-            a: First operand.
-            b: Second operand.
+            ctx (Context): The context (no variables saved).
+            a (float): The first input scalar.
+            b (float): The second input scalar.
 
         Returns:
         -------
-            The result of the equality comparison.
+            float: 1.0 if a == b else 0.0.
 
         """
-        return float(a == b)
+        return operators.eq(a, b)
 
     @staticmethod
     def backward(ctx: Context, d_output: float) -> Tuple[float, float]:
-        """Backward pass for equality.
+        """Backward pass for equality comparison.
 
         Args:
         ----
-            ctx: The context for this operation.
-            d_output: The derivative of the output.
+            ctx (Context): The context from forward (no variables saved).
+            d_output (float): The derivative of the output.
 
         Returns:
         -------
-            The derivatives with respect to the inputs.
+            Tuple[float, float]: Gradients with respect to a and b.
 
         """
-        return (0.0, 0.0)
+        # Comparison operations are non-differentiable; gradients are zero.
+        return 0.0, 0.0
