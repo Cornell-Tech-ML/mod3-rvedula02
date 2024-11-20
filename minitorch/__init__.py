@@ -1,3 +1,9 @@
+"""MiniTorch: A minimal implementation of PyTorch for educational purposes.
+
+This package contains the core components of a deep learning framework,
+including tensors, autograd, neural network modules, and optimization algorithms.
+"""
+
 from .testing import MathTest, MathTestVariable  # type: ignore # noqa: F401,F403
 from .fast_ops import *  # noqa: F401,F403
 from .cuda_ops import *  # noqa: F401,F403

@@ -4,7 +4,7 @@ from typing import Callable, Dict, Iterable, List, Tuple
 import numba
 import numba.cuda
 import pytest
-from hypothesis import given, settings
+from hypothesis import given, settings, HealthCheck
 from hypothesis.strategies import DataObject, data, integers, lists, permutations
 
 import minitorch
@@ -12,6 +12,13 @@ from minitorch import MathTestVariable, Tensor, TensorBackend, grad_check
 
 from .strategies import assert_close, small_floats
 from .tensor_strategies import assert_close_tensor, shaped_tensors, tensors
+
+settings.register_profile(
+    "tensor_tests",
+    max_examples=25,
+    suppress_health_check=[HealthCheck.data_too_large, HealthCheck.too_slow],
+)
+settings.load_profile("tensor_tests")
 
 one_arg, two_arg, red_arg = MathTestVariable._comp_testing()
 

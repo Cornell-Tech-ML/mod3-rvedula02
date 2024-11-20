@@ -5,6 +5,17 @@ from typing import List, Tuple
 
 
 def make_pts(N: int) -> List[Tuple[float, float]]:
+    """Generates a list of random points in a 2D space.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A list of tuples, each representing a point in 2D space with coordinates between 0 and 1.
+
+    """
     X = []
     for i in range(N):
         x_1 = random.random()
@@ -19,8 +30,28 @@ class Graph:
     X: List[Tuple[float, float]]
     y: List[int]
 
+    """
+    Represents a graph with points and their corresponding labels.
+
+    Attributes:
+        N: The number of points in the graph.
+        X: A list of tuples, each representing a point in 2D space.
+        y: A list of labels corresponding to each point in X.
+    """
+
 
 def simple(N: int) -> Graph:
+    """Generates a simple dataset with binary labels based on the value of x_1.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
     X = make_pts(N)
     y = []
     for x_1, x_2 in X:
@@ -30,6 +61,17 @@ def simple(N: int) -> Graph:
 
 
 def diag(N: int) -> Graph:
+    """Generates a dataset with binary labels based on a diagonal line.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
     X = make_pts(N)
     y = []
     for x_1, x_2 in X:
@@ -39,6 +81,17 @@ def diag(N: int) -> Graph:
 
 
 def split(N: int) -> Graph:
+    """Generates a dataset with binary labels based on two vertical lines.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
     X = make_pts(N)
     y = []
     for x_1, x_2 in X:
@@ -48,6 +101,17 @@ def split(N: int) -> Graph:
 
 
 def xor(N: int) -> Graph:
+    """Generates a dataset with binary labels based on XOR logic.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
     X = make_pts(N)
     y = []
     for x_1, x_2 in X:
@@ -57,6 +121,17 @@ def xor(N: int) -> Graph:
 
 
 def circle(N: int) -> Graph:
+    """Generates a dataset with binary labels based on a circular boundary.
+
+    Args:
+    ----
+        N: The number of points to generate.
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
     X = make_pts(N)
     y = []
     for x_1, x_2 in X:
@@ -67,10 +142,44 @@ def circle(N: int) -> Graph:
 
 
 def spiral(N: int) -> Graph:
+    """Generates a dataset with binary labels based on two intertwined spirals.
+
+    Args:
+    ----
+        N: The total number of points to generate (should be even).
+
+    Returns:
+    -------
+        A Graph object containing the generated points and their labels.
+
+    """
+
     def x(t: float) -> float:
+        """Calculates the x-coordinate of a point on the spiral.
+
+        Args:
+        ----
+            t: The parameter for the spiral function.
+
+        Returns:
+        -------
+            The x-coordinate of the point.
+
+        """
         return t * math.cos(t) / 20.0
 
     def y(t: float) -> float:
+        """Calculates the y-coordinate of a point on the spiral.
+
+        Args:
+        ----
+            t: The parameter for the spiral function.
+
+        Returns:
+        -------
+            The y-coordinate of the point.
+
+        """
         return t * math.sin(t) / 20.0
 
     X = [
