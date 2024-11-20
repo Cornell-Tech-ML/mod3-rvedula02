@@ -696,3 +696,56 @@ Epoch  480  loss  0.21378050153538147 correct 50 avg time per epoch: 0.0856s
 Epoch  490  loss  0.13393248607681738 correct 50 avg time per epoch: 0.0836s
 
 
+
+!cd $DIR; PYTHONPATH=/content/$DIR python3 project/run_fast_tensor.py --BACKEND gpu --HIDDEN 150 --DATASET simple --RATE 0.05
+
+Epoch  0  loss  3.184590886688736 correct 49 avg time per epoch: 5.6941s
+Epoch  10  loss  2.8347770982004468 correct 49 avg time per epoch: 1.4250s
+Epoch  20  loss  1.4713981480577922 correct 49 avg time per epoch: 1.4149s
+Epoch  30  loss  1.2265186070343468 correct 49 avg time per epoch: 1.4164s
+Epoch  40  loss  1.0893242335856472 correct 50 avg time per epoch: 1.4371s
+Epoch  50  loss  0.711287010375822 correct 50 avg time per epoch: 1.4667s
+Epoch  60  loss  1.0827197650434883 correct 50 avg time per epoch: 1.4166s
+Epoch  70  loss  1.5260828183966417 correct 50 avg time per epoch: 1.4084s
+Epoch  80  loss  1.5582211177071223 correct 50 avg time per epoch: 1.4076s
+Epoch  90  loss  0.6029663794515006 correct 50 avg time per epoch: 1.4329s
+Epoch  100  loss  0.4207344168333965 correct 50 avg time per epoch: 1.5593s
+Epoch  110  loss  0.6874269368616349 correct 50 avg time per epoch: 1.4254s
+Epoch  120  loss  0.17848692690547835 correct 49 avg time per epoch: 1.4076s
+Epoch  130  loss  0.25705332681849635 correct 50 avg time per epoch: 1.4153s
+Epoch  140  loss  0.32832070251630596 correct 50 avg time per epoch: 1.4112s
+Epoch  150  loss  0.8366383448750576 correct 50 avg time per epoch: 1.4126s
+Epoch  160  loss  0.00577940174911042 correct 50 avg time per epoch: 1.4800s
+Epoch  170  loss  0.1399561592413353 correct 50 avg time per epoch: 1.4226s
+Epoch  180  loss  0.3641777232898247 correct 50 avg time per epoch: 1.4095s
+Epoch  190  loss  0.6566746820683205 correct 50 avg time per epoch: 1.4159s
+Epoch  200  loss  0.04887504057966913 correct 50 avg time per epoch: 1.4180s
+Epoch  210  loss  0.12488590026009694 correct 50 avg time per epoch: 1.4158s
+Epoch  220  loss  0.029078877595529004 correct 50 avg time per epoch: 1.4861s
+Epoch  230  loss  0.19001442204400143 correct 50 avg time per epoch: 1.4157s
+Epoch  240  loss  0.09951770943744619 correct 50 avg time per epoch: 1.4086s
+Epoch  250  loss  0.11120614262732452 correct 50 avg time per epoch: 1.4168s
+Epoch  260  loss  0.2860976636854159 correct 50 avg time per epoch: 1.4080s
+Epoch  270  loss  0.12610130663592112 correct 50 avg time per epoch: 1.4097s
+Epoch  280  loss  0.2176942671185802 correct 50 avg time per epoch: 1.4909s
+Epoch  290  loss  0.12180054926318715 correct 50 avg time per epoch: 1.4110s
+Epoch  300  loss  0.4017447305803437 correct 50 avg time per epoch: 1.4093s
+Epoch  310  loss  0.09582182768813116 correct 50 avg time per epoch: 1.4251s
+Epoch  320  loss  0.038439837803210815 correct 50 avg time per epoch: 1.5060s
+Epoch  330  loss  0.3105758146150128 correct 50 avg time per epoch: 1.4091s
+Epoch  340  loss  0.1233286180448346 correct 50 avg time per epoch: 1.4808s
+Epoch  350  loss  0.2915693625851552 correct 50 avg time per epoch: 1.4176s
+Epoch  360  loss  0.18713095869679125 correct 50 avg time per epoch: 1.4137s
+Epoch  370  loss  0.12657536437939176 correct 50 avg time per epoch: 1.4167s
+Epoch  380  loss  0.1084810570532386 correct 50 avg time per epoch: 1.4183s
+Epoch  390  loss  0.17088972014045223 correct 50 avg time per epoch: 1.4153s
+Epoch  400  loss  0.2366336805434333 correct 50 avg time per epoch: 1.4944s
+Epoch  410  loss  0.12387439140278107 correct 50 avg time per epoch: 1.4466s
+Epoch  420  loss  0.13349237280785636 correct 50 avg time per epoch: 1.4387s
+Epoch  430  loss  0.0669105434971879 correct 50 avg time per epoch: 1.4300s
+Epoch  440  loss  7.524230280946214e-05 correct 50 avg time per epoch: 1.4290s
+Epoch  450  loss  0.006986409254970551 correct 50 avg time per epoch: 1.4410s
+Epoch  460  loss  0.01364036961636177 correct 50 avg time per epoch: 1.4798s
+Epoch  470  loss  0.23388190017656155 correct 50 avg time per epoch: 1.4118s
+Epoch  480  loss  0.22862824353132283 correct 50 avg time per epoch: 1.4248s
+Epoch  490  loss  0.07893138458634996 correct 50 avg time per epoch: 1.4215s
